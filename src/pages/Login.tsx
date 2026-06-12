@@ -1,33 +1,29 @@
 import { useState } from "react";
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../services/firebase"; // Importamos o auth que acabamos de configurar
+import { auth } from "../services/firebase";
 
 export default function Login() {
-  // Variáveis para guardar o que o usuário digita
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
-  
-  // Variável para saber se a tela é de Login ou de Criar Conta (padrão é Login = true)
-  const [isLogin, setIsLogin] = useState(true); 
+  const [isLogin, setIsLogin] = useState(true);
   const [erro, setErro] = useState("");
 
-  // Função disparada quando o botão "Entrar" ou "Cadastrar" for clicado
   const handleAutenticacao = async (e: React.FormEvent) => {
-    e.preventDefault(); // Evita que a página recarregue ao enviar o formulário
-    setErro(""); // Limpa as mensagens de erro antes de tentar novamente
+    e.preventDefault(); // Evita que a página recarregue
+    setErro(""); // Limpa os erros
 
     try {
       if (isLogin) {
+        // Tenta fazer o login
         await signInWithEmailAndPassword(auth, email, senha);
-        alert("Login efetuado com sucesso! Bem-vindo ao FootDraft.");
+        alert("Login efetuado com sucesso!");
       } else {
-        // Tenta criar uma nova conta no Firebase
+        // Tenta criar conta nova
         await createUserWithEmailAndPassword(auth, email, senha);
-        alert("Conta criada com sucesso! Você já está logado.");
+        alert("Conta criada com sucesso!");
       }
     } catch (error: any) {
-      // Se der erro (ex: senha errada, email já existe), mostramos na tela
-      setErro("Erro na autenticação: Verifique seus dados.");
+      setErro("Erro na autenticação. Verifique os dados.");
       console.error(error);
     }
   };
@@ -39,43 +35,42 @@ export default function Login() {
           {isLogin ? "Entrar no FootDraft" : "Criar Nova Conta"}
         </h2>
         
-        {/* Formulário */}
         <form onSubmit={handleAutenticacao} className="flex flex-col gap-4">
           <input
             type="email"
-            placeholder="Seu E-mail"
+            placeholder="E-mail"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="p-3 rounded bg-slate-700 border border-slate-600 focus:outline-none focus:border-emerald-400"
+            className="p-3 rounded bg-slate-700 border border-slate-600 focus:outline-none focus:border-emerald-400 text-white"
             required
           />
           <input
             type="password"
-            placeholder="Sua Senha (mín. 6 caracteres)"
+            placeholder="Senha (mín. 6 caracteres)"
             value={senha}
             onChange={(e) => setSenha(e.target.value)}
-            className="p-3 rounded bg-slate-700 border border-slate-600 focus:outline-none focus:border-emerald-400"
+            className="p-3 rounded bg-slate-700 border border-slate-600 focus:outline-none focus:border-emerald-400 text-white"
             required
           />
           
-          {/* Se houver algum erro, exibe esta mensagem em vermelho */}
           {erro && <p className="text-red-400 text-sm">{erro}</p>}
 
           <button 
             type="submit" 
             className="bg-emerald-500 text-slate-900 font-bold px-6 py-3 rounded mt-2 hover:bg-emerald-400 transition"
           >
-            {isLogin ? "Entrar na Sessão" : "Finalizar Cadastro"}
+            {isLogin ? "Entrar" : "Finalizar Cadastro"}
           </button>
         </form>
 
         <p className="mt-6 text-center text-sm text-slate-400">
-          {isLogin ? "Ainda não tem conta? " : "Já possui um time? "}
+          {isLogin ? "Não tem conta? " : "Já possui conta? "}
           <button 
+            type="button"
             onClick={() => setIsLogin(!isLogin)} 
             className="text-emerald-400 hover:underline font-semibold"
           >
-            {isLogin ? "Cadastre-se aqui" : "Faça Login"}
+            {isLogin ? "Cadastre-se" : "Faça Login"}
           </button>
         </p>
       </div>

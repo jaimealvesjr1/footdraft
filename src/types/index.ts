@@ -1,15 +1,19 @@
-export type Player = {
+export interface Jogador {
   id: string;
-  name: string;
-  position: "GK" | "DEF" | "MID" | "ATT";
+  nome: string;
+  posicao: "GOL" | "DEF" | "MEI" | "ATA";
   overall: number;
-};
+  clubeHistorico: string;
+  statusFisico: {
+    cansaco: number;
+    lesionado: boolean;
+    suspenso: boolean;
+  };
+  temporadasNoClube: number;
+}
 
-export type DraftState = {
-  id: string;
-  users: string[];
-  currentTurn: number;
-  order: string[];
-  pool: Player[];
-  picks: Record<string, Player[]>;
-};
+export interface TimeDraft {
+  uidJogador: string;
+  emailJogador: string;
+  jogadoresEscolhidos: Jogador[];
+}

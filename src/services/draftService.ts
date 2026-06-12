@@ -1,11 +1,30 @@
-import { db } from "./firebase";
-import { doc, setDoc, updateDoc } from "firebase/firestore";
-import type { DraftState } from "../types";
-
-export async function createDraft(draft: DraftState) {
-  await setDoc(doc(db, "drafts", draft.id), draft);
+// Define o que é um Jogador no universo do FootDraft
+export interface Jogador {
+  id: string;
+  nome: string;
+  posicao: "GOL" | "DEF" | "MEI" | "ATA";
+  overall: number; 
+  clubeHistorico: string; 
+  statusFisico: {
+    cansaco: number; 
+    lesionado: boolean;
+    suspenso: boolean;
+  };
+  temporadasNoClube: number; 
 }
 
-export async function updateDraft(id: string, data: Partial<DraftState>) {
-  await updateDoc(doc(db, "drafts", id), data);
+// Define o que é o Elenco de um utilizador na sala
+export interface TimeDraft {
+  uidJogador: string; 
+  emailJogador: string;
+  jogadoresEscolhidos: Jogador[]; 
+}
+
+// NOVO: Define o estado atual da Sala de Draft (Corrige o erro do draftService)
+export interface DraftState {
+  status: "aguardando" | "em_andamento" | "finalizado";
+  ordemDraft: any[];
+  turnoAtualIndex: number;
+  rodadaAtual: number;
+  jogadores: any[];
 }
