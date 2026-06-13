@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { db, auth } from "../services/firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import type { Jogador } from "../types";
 
@@ -51,7 +51,13 @@ export default function Dashboard() {
 
   const salvarEscalacao = async () => {
     if (!isValido || !auth.currentUser) return;
+    
     await updateDoc(doc(db, "usuarios", auth.currentUser.uid), { titularesIds, formacao });
+    
+    await updateDoc(doc(db, "game", "state"), { 
+      playersReady: arrayUnion(auth.currentUser.uid) 
+    });
+    
     navigate('/championship'); 
   };
 

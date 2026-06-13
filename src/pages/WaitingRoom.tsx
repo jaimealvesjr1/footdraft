@@ -1,3 +1,4 @@
+// src/pages/WaitingRoom.tsx
 import { useState, useEffect } from "react";
 import { doc, getDoc, setDoc, collection, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../services/firebase";
@@ -9,7 +10,9 @@ export default function WaitingRoom() {
   const [registroPronto, setRegistroPronto] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
-  const [timesRegistrados, setTimesRegistrados] = useState<{nome: string, tecnico: string}[]>([]);
+  
+  // ATUALIZAÇÃO: A lista agora guarda o ID do usuário para podermos compará-lo
+  const [timesRegistrados, setTimesRegistrados] = useState<{id: string, nome: string, tecnico: string}[]>([]);
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
@@ -22,10 +25,10 @@ export default function WaitingRoom() {
     });
 
     const unsubscribeUsers = onSnapshot(collection(db, "usuarios"), (snapshot) => {
-      const lista: {nome: string, tecnico: string}[] = [];
+      const lista: {id: string, nome: string, tecnico: string}[] = [];
       snapshot.forEach(doc => {
         const dados = doc.data();
-        if (dados.nomeTime) lista.push({ nome: dados.nomeTime, tecnico: dados.nomeTecnico });
+        if (dados.nomeTime) lista.push({ id: doc.id, nome: dados.nomeTime, tecnico: dados.nomeTecnico });
       });
       setTimesRegistrados(lista);
     });
@@ -84,12 +87,25 @@ export default function WaitingRoom() {
           <span className="bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-2 py-1 rounded text-xs">{timesRegistrados.length} Conectados</span>
         </h2>
         <ul className="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-2">
-          {timesRegistrados.map((time, idx) => (
-            <li key={idx} className="bg-neutral-950 p-3 rounded-lg border border-neutral-800 flex flex-col">
-              <span className="text-white font-black text-lg">{time.nome}</span>
-              <span className="text-xs text-cyan-400 font-bold uppercase tracking-wider">Mister {time.tecnico}</span>
-            </li>
-          ))}
+          {timesRegistrados.map((time, idx) => {
+            // ATUALIZAÇÃO: Verifica se esta linha pertence ao usuário logado
+            const isMe = time.id === auth.currentUser?.uid;
+            
+            return (
+              <li key={idx} className={`bg-neutral-950 p-3 rounded-lg border flex flex-col transition-all
+                ${isMe ? 'border-yellow-500 bg-yellow-500/5' : 'border-neutral-800'}`}>
+                <div className="flex justify-between items-center">
+                  <span className={`font-black text-lg ${isMe ? 'text-yellow-400' : 'text-white'}`}>{time.nome}</span>
+                  {isMe && (
+                    <span className="text-[10px] bg-yellow-500 text-neutral-950 px-2 py-1 rounded font-black tracking-widest uppercase shadow-sm">
+                      Você
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs text-cyan-400 font-bold uppercase tracking-wider mt-1">Mister {time.tecnico}</span>
+              </li>
+            );
+          })}
           {timesRegistrados.length === 0 && <p className="text-neutral-500 text-center text-sm italic py-4">Nenhum time registrado ainda.</p>}
         </ul>
       </div>

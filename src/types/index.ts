@@ -38,6 +38,14 @@ export const LIMITE_CORINGA = 2;
 // ==========================================
 export type GamePhase = 'SETUP' | 'PRE_SEASON' | 'FIRST_HALF' | 'TRANSFER_WINDOW' | 'SECOND_HALF' | 'FINISHED';
 
+export interface JogoCamp {
+  homeId: string;
+  awayId: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  relatorio: string[];
+}
+
 export interface GameState {
   phase: GamePhase;
   currentRound: number;
@@ -45,6 +53,12 @@ export interface GameState {
   draftDeadline: number | null;     
   draftOrder: string[];             
   playersReady: string[];           
-  currentPack?: Jogador[];          // O pacote de 9 cartas gerado pelo jogador atual
-  currentPicks?: Jogador[];         // As cartas que ele já clicou
+  currentPack?: Jogador[];          
+  currentPicks?: Jogador[];
+  
+  // NOVOS CAMPOS PARA O CAMPEONATO
+  teams?: { id: string, nome: string, isUser: boolean }[];
+  standings?: { id: string, pts: number, j: number, v: number, e: number, d: number, gp: number, gc: number, sg: number }[];
+  schedule?: JogoCamp[][]; // Ex: schedule[0] = Todos os jogos da Rodada 1
 }
+

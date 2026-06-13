@@ -2,10 +2,9 @@
 import { useState, useEffect } from 'react';
 import { collection, getDocs, doc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '../services/firebase';
-import { type Jogador, type GameState } from '../types';
+import { type Jogador, type GameState, type Clube } from '../types';
 
-const LIMITES = { GOL: 3, DEF: 6, MEI: 5, ATA: 5 };
-const CORINGAS = 2;
+const LIMITES = { GOL: 3, DEF: 6, MEI: 6, ATA: 6 };
 const ESCOLHAS_POR_RODADA = 3;
 const TEMPO_LIMITE_MS = 3 * 60 * 1000;
 
@@ -16,8 +15,9 @@ export default function Draft() {
   const currentUserUid = auth.currentUser?.uid;
   const isMyTurn = gameState?.draftTurnUid === currentUserUid;
 
-  const [piscinaJogadores, setPiscinaJogadores] = useState<Jogador[]>([]);
-  const [jogadoresIndisponiveis, setJogadoresIndisponiveis] = useState<string[]>([]);
+  const [clubesDisponiveis, setClubesDisponiveis] = useState<Clube[]>([]);
+  const [jaRerolou, setJaRerolou] = useState(false);
+  const [jogadoresIndisponiveis, setJogadoresIndisponiveis] = useState<Record<string, string>>({});
   const [mapaUsuarios, setMapaUsuarios] = useState<Record<string, string>>({});
   
   const [pacoteAtual, setPacoteAtual] = useState<Jogador[]>([]);
@@ -28,37 +28,71 @@ export default function Draft() {
   const [carregando, setCarregando] = useState(true);
 
   // ==========================================
-  // LÓGICA 1: OUVIR O SERVIDOR (Sincronização Absoluta)
+  // FUNÇÕES AUXILIARES E DE REGRAS TÁTICAS
+  // (Declaradas no topo para evitar erros de escopo/TypeScript)
+  // ==========================================
+  const getPosicoesNecessarias = () => {
+    const todosEscolhidos = [...meuElenco, ...escolhasDaRodada];
+    const contagem = { GOL: 0, DEF: 0, MEI: 0, ATA: 0 };
+    todosEscolhidos.forEach(j => contagem[j.posicao as keyof typeof contagem]++);
+    return Object.keys(LIMITES).filter(pos => {
+      const p = pos as keyof typeof LIMITES;
+      return contagem[p] < LIMITES[p];
+    });
+  };
+
+  const podeEscolherMais = (posicao: string) => {
+    const todosEscolhidos = [...meuElenco, ...escolhasDaRodada];
+    const contagem = { GOL: 0, DEF: 0, MEI: 0, ATA: 0 };
+    todosEscolhidos.forEach(j => contagem[j.posicao as keyof typeof contagem]++);
+    return contagem[posicao as keyof typeof contagem] < LIMITES[posicao as keyof typeof LIMITES];
+  };
+
+  // Calcula exatamente quantos jogadores o técnico PODE escolher desta mesa específica
+  const getMaxPickable = () => {
+    const contagem = { GOL: 0, DEF: 0, MEI: 0, ATA: 0 };
+    meuElenco.forEach(j => contagem[j.posicao as keyof typeof contagem]++);
+    let pickable = 0;
+    
+    pacoteAtual.forEach(j => {
+      if (!jogadoresIndisponiveis[j.id] && contagem[j.posicao as keyof typeof contagem] < LIMITES[j.posicao as keyof typeof LIMITES]) {
+        contagem[j.posicao as keyof typeof contagem]++;
+        pickable++;
+      }
+    });
+    return Math.min(ESCOLHAS_POR_RODADA, pickable);
+  };
+
+  // ==========================================
+  // LÓGICA 1: OUVIR O SERVIDOR E DADOS INICIAIS
   // ==========================================
   useEffect(() => {
-    // 1. Escuta o estado global do jogo
     const unsubscribeGame = onSnapshot(doc(db, "game", "state"), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data() as GameState;
         setGameState(data);
         
-        // A MÁGICA DA CORREÇÃO: Todos (inclusive o jogador ativo) carregam o pacote que está no servidor.
-        // Se o jogador ativo recarregar a página, ele recupera as cartas instantaneamente!
-        setPacoteAtual(data.currentPack || []);
-
-        // VASSOURA DE SEGURANÇA: Se a mesa estiver vazia (turno mudou) OU se não for a sua vez, limpe seus cliques!
-        if (!data.currentPack || data.currentPack.length === 0 || data.draftTurnUid !== currentUserUid) {
+        if (!data.currentPack || data.currentPack.length === 0) {
+          setPacoteAtual([]);
+          setEscolhasDaRodada([]);
+        } else if (data.draftTurnUid !== currentUserUid) {
+          setPacoteAtual(data.currentPack);
           setEscolhasDaRodada([]);
         }
       }
     });
 
-    // 2. Carrega a base de dados de clubes
     const carregarBancoDeJogadores = async () => {
       const queryClubes = await getDocs(collection(db, "clubes"));
-      let todos: Jogador[] = [];
-      queryClubes.forEach(d => { if (d.data().elenco) todos = [...todos, ...d.data().elenco]; });
-      setPiscinaJogadores(todos);
+      let clubes: Clube[] = [];
+      queryClubes.forEach(d => { 
+        if (d.data().elenco) clubes.push({ id: d.id, ...d.data() } as Clube); 
+      });
+      setClubesDisponiveis(clubes);
     };
 
-    // 3. Ouvinte em tempo real para Exclusividade de Jogadores
     const unsubscribeUsuarios = onSnapshot(collection(db, "usuarios"), (snapshot) => {
-      let IDsJaEscolhidos: string[] = [];
+      let mapaIndisponiveis: Record<string, string> = {};
       let mapa: Record<string, string> = {};
       
       snapshot.forEach(documento => {
@@ -66,7 +100,9 @@ export default function Draft() {
         mapa[documento.id] = dados.nomeTime || "Desconhecido";
 
         if (dados.elenco) {
-          IDsJaEscolhidos = [...IDsJaEscolhidos, ...dados.elenco.map((j: Jogador) => j.id)];
+          dados.elenco.forEach((j: Jogador) => {
+            mapaIndisponiveis[j.id] = dados.nomeTime || "Desconhecido";
+          });
           if (documento.id === currentUserUid) {
             setMeuElenco(dados.elenco);
             setNomeTime(dados.nomeTime);
@@ -74,7 +110,7 @@ export default function Draft() {
         }
       });
       setMapaUsuarios(mapa);
-      setJogadoresIndisponiveis(IDsJaEscolhidos);
+      setJogadoresIndisponiveis(mapaIndisponiveis);
       setCarregando(false);
     });
 
@@ -104,74 +140,119 @@ export default function Draft() {
   }, [gameState, isMyTurn]);
 
   // ==========================================
-  // LÓGICA 3: GERAR O PACOTE NO SERVIDOR
+  // LÓGICA 3: GERAR PACOTE (PLANO A E PLANO B)
   // ==========================================
   useEffect(() => {
-    // Só o dono da vez tem o poder de gerar. Ele gera SE a mesa do servidor estiver vazia!
     const pacoteVazioNoServidor = !gameState?.currentPack || gameState.currentPack.length === 0;
-
-    if (isMyTurn && piscinaJogadores.length > 0 && pacoteVazioNoServidor) {
+    if (isMyTurn && pacoteAtual.length === 0 && clubesDisponiveis.length > 0 && pacoteVazioNoServidor) {
       gerarPacoteETramitir();
     }
-  }, [isMyTurn, piscinaJogadores, jogadoresIndisponiveis, gameState?.currentPack]);
+  }, [isMyTurn, clubesDisponiveis, jogadoresIndisponiveis, gameState?.currentPack, pacoteAtual.length]);
 
-  const gerarPacoteETramitir = async () => {
-    const disponiveis = piscinaJogadores.filter(j => !jogadoresIndisponiveis.includes(j.id));
+  const gerarPacoteETramitir = async (clubeIgnorado?: string) => {
+    const usersSnap = await getDocs(collection(db, "usuarios"));
+    let idsBloqueados: string[] = [];
+    usersSnap.forEach(doc => {
+      const dados = doc.data();
+      if (dados.elenco) {
+        idsBloqueados.push(...dados.elenco.map((j: Jogador) => j.id));
+      }
+    });
+
+    const contagem = { GOL: 0, DEF: 0, MEI: 0, ATA: 0 };
+    meuElenco.forEach(j => contagem[j.posicao as keyof typeof contagem]++);
     
-    const pescarComNerf = (quantidade: number, posicao: string, minOvr: number, maxOvr: number): Jogador[] => {
-      let filtro = disponiveis.filter(j => j.posicao === posicao);
-      if (filtro.length === 0) filtro = disponiveis; 
-      const sorteados = filtro.sort(() => Math.random() - 0.5).slice(0, quantidade);
-      return sorteados.map(j => ({ ...j, overall: Math.floor(Math.random() * (maxOvr - minOvr + 1)) + minOvr }));
+    const posicoesFaltando = getPosicoesNecessarias();
+
+    const vagas = {
+      GOL: Math.max(0, LIMITES.GOL - contagem.GOL),
+      DEF: Math.max(0, LIMITES.DEF - contagem.DEF),
+      MEI: Math.max(0, LIMITES.MEI - contagem.MEI),
+      ATA: Math.max(0, LIMITES.ATA - contagem.ATA),
     };
 
-    const pacote: Jogador[] = [
-      ...pescarComNerf(1, 'GOL', 85, 92), ...pescarComNerf(1, 'GOL', 70, 78),
-      ...pescarComNerf(1, 'DEF', 88, 94), ...pescarComNerf(1, 'DEF', 80, 85), ...pescarComNerf(1, 'DEF', 70, 79),
-      ...pescarComNerf(1, 'MEI', 88, 95), ...pescarComNerf(1, 'MEI', 75, 82),
-      ...pescarComNerf(1, 'ATA', 88, 95), ...pescarComNerf(1, 'ATA', 75, 82),
-    ].sort(() => Math.random() - 0.5);
+    const clubesAvaliados = clubesDisponiveis.map(clube => {
+      const disponiveisClube = { GOL: 0, DEF: 0, MEI: 0, ATA: 0 };
+      clube.elenco.forEach((j: Jogador) => {
+        if (!idsBloqueados.includes(j.id) && disponiveisClube[j.posicao as keyof typeof disponiveisClube] !== undefined) {
+          disponiveisClube[j.posicao as keyof typeof disponiveisClube]++;
+        }
+      });
 
-    // Envia o pacote imediatamente para o servidor. O nosso LÓGICA 1 vai escutar e preencher a tela para todos.
+      const potencialReal = 
+        Math.min(disponiveisClube.GOL, vagas.GOL) +
+        Math.min(disponiveisClube.DEF, vagas.DEF) +
+        Math.min(disponiveisClube.MEI, vagas.MEI) +
+        Math.min(disponiveisClube.ATA, vagas.ATA);
+
+      return { clube, potencialReal };
+    });
+
+    let clubesValidos = clubesAvaliados.filter(c => 
+      c.potencialReal >= ESCOLHAS_POR_RODADA && (!clubeIgnorado || c.clube.nome !== clubeIgnorado)
+    );
+
+    let pacote: Jogador[] = [];
+    const ordemPosicoes: Record<string, number> = { GOL: 1, DEF: 2, MEI: 3, ATA: 4 };
+
+    if (clubesValidos.length > 0) {
+      // PLANO A: Clube Fechado (Com Fartura)
+      clubesValidos.sort((a, b) => b.potencialReal - a.potencialReal);
+      const topClubes = clubesValidos.slice(0, 5);
+      const clubeSorteado = topClubes[Math.floor(Math.random() * topClubes.length)].clube;
+
+      pacote = clubeSorteado.elenco
+        .sort((a: Jogador, b: Jogador) => (ordemPosicoes[a.posicao] || 5) - (ordemPosicoes[b.posicao] || 5));
+    } else {
+      // PLANO B: Mercado Livre (Mix de Clubes)
+      let jogadoresAvulsos: Jogador[] = [];
+      clubesDisponiveis.forEach(c => {
+        c.elenco.forEach(j => {
+          if (!idsBloqueados.includes(j.id) && posicoesFaltando.includes(j.posicao)) {
+            jogadoresAvulsos.push(j);
+          }
+        });
+      });
+
+      pacote = jogadoresAvulsos
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 6)
+        .sort((a, b) => (ordemPosicoes[a.posicao] || 5) - (ordemPosicoes[b.posicao] || 5));
+    }
+
+    setPacoteAtual(pacote);
+    setEscolhasDaRodada([]);
     await updateDoc(doc(db, "game", "state"), { currentPack: pacote });
   };
 
-  // ==========================================
-  // LÓGICA 4: SELECIONAR JOGADOR E REGRAS TÁTICAS
-  // ==========================================
-  const podeEscolherMais = (posicao: string) => {
-    const todosEscolhidos = [...meuElenco, ...escolhasDaRodada];
-    const contagem = { GOL: 0, DEF: 0, MEI: 0, ATA: 0 };
-    todosEscolhidos.forEach(j => contagem[j.posicao as keyof typeof contagem]++);
-
-    let coringas = 0;
-    Object.keys(LIMITES).forEach(pos => {
-      const p = pos as keyof typeof LIMITES;
-      if (contagem[p] > LIMITES[p]) coringas += (contagem[p] - LIMITES[p]);
-    });
-
-    if (contagem[posicao as keyof typeof contagem] < LIMITES[posicao as keyof typeof LIMITES]) return true;
-    if (coringas < CORINGAS) return true;
-    return false;
+  const rerolarTime = () => {
+    if (jaRerolou || pacoteAtual.length === 0) return;
+    setJaRerolou(true);
+    const clubeAtual = pacoteAtual[0].clubeHistorico; 
+    gerarPacoteETramitir(clubeAtual); 
   };
 
+  // ==========================================
+  // LÓGICA 4: SELECIONAR JOGADOR E LIDERANÇA
+  // ==========================================
   const toggleJogador = (jogador: Jogador) => {
     if (!isMyTurn) return; 
-
-    let novasEscolhas = [...escolhasDaRodada];
-    if (novasEscolhas.some(j => j.id === jogador.id)) {
-      novasEscolhas = novasEscolhas.filter(j => j.id !== jogador.id);
-    } else {
-      if (novasEscolhas.length >= ESCOLHAS_POR_RODADA) return; 
-      if (podeEscolherMais(jogador.posicao)) novasEscolhas.push(jogador);
-    }
-
-    setEscolhasDaRodada(novasEscolhas);
+    setEscolhasDaRodada(prevEscolhas => {
+      let novasEscolhas = [...prevEscolhas];
+      if (novasEscolhas.some(j => j.id === jogador.id)) {
+        return novasEscolhas.filter(j => j.id !== jogador.id);
+      } else {
+        if (novasEscolhas.length >= ESCOLHAS_POR_RODADA) return prevEscolhas; 
+        const todosEscolhidos = [...meuElenco, ...novasEscolhas];
+        const contagem = { GOL: 0, DEF: 0, MEI: 0, ATA: 0 };
+        todosEscolhidos.forEach(j => contagem[j.posicao as keyof typeof contagem]++);
+        const podeAdicionar = contagem[jogador.posicao as keyof typeof contagem] < LIMITES[jogador.posicao as keyof typeof LIMITES];
+        if (podeAdicionar) novasEscolhas.push(jogador);
+        return novasEscolhas;
+      }
+    });
   };
 
-  // ==========================================
-  // LÓGICA 5: PASSAR O TURNO E LIDERANÇA
-  // ==========================================
   const passarTurnoNoServidor = async (novoElencoMeu: Jogador[]) => {
     if (!gameState || !currentUserUid) return;
 
@@ -189,39 +270,67 @@ export default function Draft() {
       novaRodada += 1;
     }
 
+    if (novaRodada > 7) {
+      await updateDoc(doc(db, "game", "state"), {
+        phase: 'FIRST_HALF',
+        draftTurnUid: null,
+        currentPack: []
+      });
+      return;
+    }
+
     const proximoUid = gameState.draftOrder![proximoIndex];
 
-    // O pulo do gato: Esvaziar o pacote aqui garante que o LÓGICA 1 limpe as telas de todos imediatamente.
+    setJaRerolou(false);
+
     await updateDoc(doc(db, "game", "state"), {
       draftTurnUid: proximoUid,
       currentRound: novaRodada,
       draftDeadline: Date.now() + TEMPO_LIMITE_MS,
       currentPack: [] 
     });
+
+    setPacoteAtual([]); setEscolhasDaRodada([]);
   };
 
   const confirmarRodadaManual = () => {
-    if (escolhasDaRodada.length !== ESCOLHAS_POR_RODADA) return;
+    const picksObrigatorios = getMaxPickable();
+    if (escolhasDaRodada.length !== picksObrigatorios) return;
     const novoElenco = [...meuElenco, ...escolhasDaRodada];
     setMeuElenco(novoElenco);
     passarTurnoNoServidor(novoElenco);
   };
 
   const fazerEscolhaAutomaticaEPassarTurno = () => {
-    const autoEscolhidos = pacoteAtual.slice(0, 3);
-    const novoElenco = [...meuElenco, ...autoEscolhidos];
+    let novasEscolhas = [...escolhasDaRodada];
+    const podeAdicionarNaSimulacao = (posicao: string, simulacao: Jogador[]) => {
+      const todos = [...meuElenco, ...simulacao];
+      const contagem = { GOL: 0, DEF: 0, MEI: 0, ATA: 0 };
+      todos.forEach(j => contagem[j.posicao as keyof typeof contagem]++);
+      return contagem[posicao as keyof typeof contagem] < LIMITES[posicao as keyof typeof LIMITES];
+    };
+
+    for (const jogador of pacoteAtual) {
+      if (novasEscolhas.length >= ESCOLHAS_POR_RODADA) break;
+      if (!jogadoresIndisponiveis[jogador.id] && !novasEscolhas.some(j => j.id === jogador.id) && podeAdicionarNaSimulacao(jogador.posicao, novasEscolhas)) {
+        novasEscolhas.push(jogador);
+      }
+    }
+    const novoElenco = [...meuElenco, ...novasEscolhas];
     setMeuElenco(novoElenco);
     passarTurnoNoServidor(novoElenco);
   };
 
   // ==========================================
-  // RENDERIZAÇÃO E INTERFACE (FUT PREMIUM)
+  // RENDERIZAÇÃO E INTERFACE
   // ==========================================
   if (carregando) return <div className="h-screen bg-neutral-950 flex flex-col items-center justify-center font-sans"><div className="w-12 h-12 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mb-4"></div><p className="text-yellow-400 font-black tracking-widest uppercase animate-pulse">Conectando ao Evento de Draft...</p></div>;
 
   const minutos = Math.floor(tempoRestante / 60).toString().padStart(2, '0');
   const segundos = (tempoRestante % 60).toString().padStart(2, '0');
   
+  const picksObrigatorios = isMyTurn && pacoteAtual.length > 0 ? getMaxPickable() : ESCOLHAS_POR_RODADA;
+
   const renderSequenciaDraft = () => (
     <div className="bg-black p-3 flex gap-4 overflow-x-auto border-b border-neutral-800 custom-scrollbar items-center">
       <span className="text-yellow-500 font-black text-xs uppercase whitespace-nowrap tracking-widest">Ordem do Draft:</span>
@@ -246,17 +355,16 @@ export default function Draft() {
     <div className="min-h-screen bg-neutral-950 text-neutral-200 flex flex-col font-sans">
       {renderSequenciaDraft()}
 
-      <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-8 w-full p-4 md:p-8 flex-1">
+      <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-8 w-full p-4 md:p-8 flex-1 overflow-hidden">
         
-        {/* PAINEL CENTRAL */}
-        <div className="flex-1 flex flex-col">
-          <div className="border-b border-neutral-800 pb-4 mb-6 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="border-b border-neutral-800 pb-4 mb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 shrink-0">
             <div>
               <h1 className="text-3xl font-black text-white uppercase tracking-tighter">
-                Rodada <span className="text-yellow-400">{Math.ceil((gameState?.currentRound || 1) / (gameState?.draftOrder?.length || 1))}</span>
+                Rodada <span className="text-yellow-400">{Math.min(gameState?.currentRound || 1, 7)}</span> / 7
               </h1>
               {isMyTurn ? (
-                <p className="text-cyan-400 font-bold uppercase text-sm tracking-widest mt-1">É a SUA VEZ! Escolha 3 jogadores.</p>
+                <p className="text-cyan-400 font-bold uppercase text-sm tracking-widest mt-1">É a SUA VEZ! Escolha {picksObrigatorios} jogadores.</p>
               ) : (
                 <p className="text-neutral-400 text-sm mt-1">
                   <strong className="text-yellow-400">{mapaUsuarios[gameState?.draftTurnUid || '']}</strong> está analisando as cartas...
@@ -273,55 +381,76 @@ export default function Draft() {
               </div>
               <div className="text-center px-2">
                 <span className="block text-[10px] text-neutral-500 uppercase font-bold tracking-widest">Selecionados</span>
-                <span className="text-2xl font-black text-yellow-400">{escolhasDaRodada.length}/3</span>
+                <span className="text-2xl font-black text-yellow-400">{escolhasDaRodada.length}/{picksObrigatorios}</span>
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 flex-1">
-            {pacoteAtual.length === 0 && (
-              <div className="col-span-full h-full flex flex-col items-center justify-center text-neutral-600">
+          {pacoteAtual.length > 0 && (
+            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 mb-4 text-center shadow-lg shrink-0">
+              <h2 className="text-xl md:text-2xl font-black text-yellow-400 uppercase tracking-widest">
+                {pacoteAtual.every(j => j.clubeHistorico === pacoteAtual[0].clubeHistorico) 
+                  ? pacoteAtual[0].clubeHistorico 
+                  : "MERCADO LIVRE (Agentes Livres)"}
+              </h2>
+              <p className="text-xs text-neutral-500 uppercase tracking-widest mt-1 font-bold">Elenco Disponível para Seleção</p>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-3 flex-1 overflow-y-auto custom-scrollbar pr-2 pb-4">
+            {pacoteAtual.length === 0 && !isMyTurn && (
+              <div className="h-full flex flex-col items-center justify-center text-neutral-600">
                 <div className="w-12 h-12 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-                <p className="italic font-bold uppercase tracking-widest text-sm">Gerando pacote da mesa...</p>
+                <p className="italic font-bold uppercase tracking-widest text-sm">Aguardando pacote...</p>
               </div>
             )}
             
             {pacoteAtual.map((jogador) => {
+              const timeDono = jogadoresIndisponiveis[jogador.id]; 
+              const isIndisponivel = !!timeDono;
               const isSelecionado = escolhasDaRodada.some(j => j.id === jogador.id);
-              const isDisabled = !isMyTurn || (!isSelecionado && (!podeEscolherMais(jogador.posicao) || escolhasDaRodada.length >= ESCOLHAS_POR_RODADA));
+              const isDisabled = !isMyTurn || isIndisponivel || (!isSelecionado && (!podeEscolherMais(jogador.posicao) || escolhasDaRodada.length >= picksObrigatorios));
+
+              let bgClass = 'bg-neutral-900 border-neutral-700 hover:border-yellow-500 hover:bg-neutral-800 shadow-xl cursor-pointer';
+              if (isIndisponivel) bgClass = 'bg-neutral-950/80 border-neutral-900 opacity-60 cursor-not-allowed grayscale';
+              else if (isSelecionado) bgClass = 'bg-yellow-900/20 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.15)]';
+              else if (isDisabled && isMyTurn) bgClass = 'bg-neutral-950 border-neutral-900 opacity-40 cursor-not-allowed grayscale';
+              else if (!isMyTurn) bgClass = 'bg-neutral-900 border-neutral-800 cursor-default';
 
               return (
                 <button
                   key={jogador.id}
                   onClick={() => toggleJogador(jogador)}
                   disabled={isDisabled}
-                  className={`p-4 rounded-xl border-2 text-left transition-all relative overflow-hidden h-36 flex flex-col justify-between
-                    ${isSelecionado ? 'bg-yellow-900/20 border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.15)]' : 
-                      isDisabled && isMyTurn ? 'bg-neutral-950 border-neutral-900 opacity-30 cursor-not-allowed grayscale' : 
-                      !isMyTurn ? 'bg-neutral-900 border-neutral-800 cursor-default shadow-md' :
-                      'bg-neutral-900 border-neutral-700 hover:border-yellow-500 hover:bg-neutral-800 shadow-xl cursor-pointer'}
-                  `}
+                  className={`p-3 md:p-4 rounded-xl border-2 flex flex-row items-center justify-between transition-all relative overflow-hidden shrink-0 ${bgClass}`}
                 >
-                  <div className={`absolute top-0 left-0 w-full h-1 ${isMyTurn && jogador.overall >= 88 ? 'bg-linear-to-r from-yellow-600 to-yellow-300' : 'bg-neutral-800'}`}></div>
+                  <div className={`absolute top-0 left-0 w-1 h-full ${isIndisponivel ? 'bg-red-900/50' : 'bg-neutral-800'}`}></div>
 
-                  <div className="mt-2">
-                    <p className={`font-black text-lg sm:text-xl truncate ${isSelecionado ? 'text-yellow-400' : 'text-white'}`}>{jogador.nome}</p>
-                    <p className="text-[10px] sm:text-xs text-neutral-400 truncate mt-1 uppercase font-bold">{jogador.clubeHistorico}</p>
-                  </div>
-                  <div className="flex justify-between items-end">
-                    <span className="text-[10px] sm:text-xs bg-neutral-950 px-2 py-1 rounded font-black text-cyan-400 border border-neutral-800 tracking-wider">
+                  <div className="flex items-center gap-4 pl-2">
+                    <span className={`w-12 text-center text-[10px] sm:text-xs px-2 py-2 rounded font-black tracking-widest ${isIndisponivel ? 'bg-neutral-900 text-neutral-600 border-neutral-800' : 'bg-neutral-950 text-cyan-400 border-neutral-800'}`}>
                       {jogador.posicao}
                     </span>
-                    
-                    {isMyTurn ? (
-                      <span className={`text-sm sm:text-base px-2 py-1 rounded font-black ${jogador.overall >= 88 ? 'text-yellow-400' : 'text-neutral-300'}`}>
-                        OVR {jogador.overall}
-                      </span>
-                    ) : (
-                      <span className="text-sm sm:text-base px-2 py-1 rounded font-black text-neutral-600">
-                        OVR ??
-                      </span>
-                    )}
+                    <div className="text-left">
+                      <p className={`font-black text-base sm:text-lg truncate ${isSelecionado ? 'text-yellow-400' : isIndisponivel ? 'text-neutral-500 line-through' : 'text-white'}`}>
+                        {jogador.nome}
+                      </p>
+                      {isIndisponivel && (
+                        <p className="text-[10px] text-red-500 uppercase font-bold tracking-widest mt-1">
+                          No {timeDono}
+                        </p>
+                      )}
+                      {/* Subtítulo utilitário apenas no Mercado Livre para identificar o time de origem */}
+                      {(!pacoteAtual.every(j => j.clubeHistorico === pacoteAtual[0].clubeHistorico)) && !isIndisponivel && (
+                        <p className="text-[10px] text-neutral-500 uppercase font-bold tracking-widest mt-1">
+                          De: {jogador.clubeHistorico}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    {isSelecionado && <span className="text-[10px] sm:text-xs bg-yellow-500 text-neutral-950 px-2 py-1 rounded font-black uppercase tracking-widest">Selecionado</span>}
+                    {isIndisponivel && !isSelecionado && <span className="text-[10px] sm:text-xs bg-neutral-900 text-neutral-600 px-2 py-1 rounded font-black uppercase tracking-widest border border-neutral-800">Indisponível</span>}
                   </div>
                 </button>
               );
@@ -329,22 +458,34 @@ export default function Draft() {
           </div>
 
           {isMyTurn && (
-            <button 
-              onClick={confirmarRodadaManual}
-              disabled={escolhasDaRodada.length !== ESCOLHAS_POR_RODADA}
-              className="mt-6 w-full py-4 rounded-xl font-black text-lg uppercase tracking-widest transition-all disabled:opacity-50 disabled:bg-neutral-900 disabled:text-neutral-600 bg-yellow-500 text-neutral-950 hover:bg-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.2)]"
-            >
-              {escolhasDaRodada.length === ESCOLHAS_POR_RODADA ? `Confirmar e Passar a Vez` : `Faltam ${ESCOLHAS_POR_RODADA - escolhasDaRodada.length} Jogadores`}
-            </button>
+            <div className="mt-4 flex flex-col sm:flex-row gap-4 shrink-0">
+              <button 
+                onClick={rerolarTime}
+                disabled={jaRerolou || escolhasDaRodada.length > 0}
+                className="w-full sm:w-1/3 py-4 rounded-xl font-black text-sm uppercase tracking-widest transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-neutral-800 text-white hover:bg-neutral-700 border border-neutral-700"
+                title="Trocar este time por outro aleatório (Apenas 1 vez por fase)"
+              >
+                {jaRerolou ? 'Reroll Esgotado' : '🎲 Rerolar Time'}
+              </button>
+              
+              <button 
+                onClick={confirmarRodadaManual}
+                disabled={escolhasDaRodada.length !== picksObrigatorios}
+                className="w-full sm:w-2/3 py-4 rounded-xl font-black text-lg uppercase tracking-widest transition-all disabled:opacity-50 disabled:bg-neutral-900 disabled:text-neutral-600 bg-yellow-500 text-neutral-950 hover:bg-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.2)]"
+              >
+                {escolhasDaRodada.length === picksObrigatorios 
+                  ? (picksObrigatorios === 0 ? `Pular Vez (Sem Opções)` : `Confirmar e Passar a Vez`)
+                  : `Faltam ${picksObrigatorios - escolhasDaRodada.length}`}
+              </button>
+            </div>
           )}
         </div>
 
-        {/* BARRA LATERAL */}
-        <div className="w-full lg:w-80 bg-neutral-900 p-6 rounded-xl border border-neutral-800 h-fit shadow-2xl">
-          <h3 className="font-black text-xl text-white border-b border-neutral-800 pb-4 mb-4 uppercase tracking-tighter">
+        <div className="w-full lg:w-80 bg-neutral-900 p-6 rounded-xl border border-neutral-800 h-150 shadow-2xl shrink-0 flex flex-col">
+          <h3 className="font-black text-xl text-white border-b border-neutral-800 pb-4 mb-4 uppercase tracking-tighter shrink-0">
             Elenco <span className="text-yellow-400 block text-sm tracking-widest">{nomeTime}</span>
           </h3>
-          <ul className="space-y-2 max-h-96 overflow-y-auto custom-scrollbar pr-2">
+          <ul className="space-y-2 flex-1 overflow-y-auto custom-scrollbar pr-2">
             {[...meuElenco, ...(isMyTurn ? escolhasDaRodada : [])].map((j, i) => (
               <li key={i} className={`flex justify-between items-center p-3 rounded-lg border ${(isMyTurn && escolhasDaRodada.some(e => e.id === j.id)) ? 'bg-yellow-900/10 border-yellow-500/50' : 'bg-neutral-950 border-neutral-800'}`}>
                 <span className="font-bold text-neutral-200 text-sm truncate w-32">{j.nome}</span>
