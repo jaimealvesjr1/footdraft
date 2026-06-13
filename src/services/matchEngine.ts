@@ -1,31 +1,35 @@
 // src/services/matchEngine.ts
 import { type Jogador } from '../types';
 
-// ==========================================
-// FUNÇÕES AUXILIARES MATEMÁTICAS
-// ==========================================
+export type EventoPartida = {
+  minuto: number;
+  tipo: 'GOL' | 'CARTAO_AMARELO' | 'CARTAO_VERMELHO' | 'LESAO';
+  time: 'CASA' | 'FORA';
+  texto: string;
+  jogadorId?: string;
+};
 
-// Distribuição de Poisson para gerar os Gols
+// Distribuição de Poisson
 function getPoisson(lambda: number): number {
   let L = Math.exp(-lambda);
   let p = 1.0;
   let k = 0;
-  do {
-    k++;
-    p *= Math.random();
-  } while (p > L);
+  do { k++; p *= Math.random(); } while (p > L);
   return k - 1;
 }
 
-// Cálculo do Overall com base no Estado Físico
+// Cálculo do Overall com a nova escala de Cansaço (1 a 5)
 const getAdjustedOverall = (j: Jogador) => {
-  const status = j.statusFisico || { cansaco: 0, lesionado: false, suspenso: false };
-  if (status.lesionado || status.suspenso) return 0; // Inapto para jogar
-  const cansaco = Math.min(status.cansaco, 100);
-  return j.overall * (1 - (cansaco / 200));
+  const status = j.statusFisico || { cansaco: 1, lesionado: false, suspenso: false };
+  if (status.lesionado || status.suspenso) return 0; // Não joga nada
+  
+  // Escala: 1=100%, 2=90%, 3=80%, 4=60%, 5=40%
+  const penalidade = [1, 0.9, 0.8, 0.6, 0.4];
+  const nivel = Math.max(1, Math.min(5, status.cansaco)) - 1;
+  
+  return j.overall * penalidade[nivel];
 };
 
-// Cálculo do Setor
 const calcSector = (team: Jogador[], pos: string) => {
   const players = team.filter(j => j.posicao === pos);
   if (players.length === 0) return 0;
@@ -33,35 +37,20 @@ const calcSector = (team: Jogador[], pos: string) => {
   return sum / players.length;
 };
 
-// Aplicação dos Eventos Pós-Jogo
-const applyPostMatch = (team: Jogador[]) => {
-  return team.map(j => {
-    let status = { ...(j.statusFisico || { cansaco: 0, lesionado: false, suspenso: false }) };
-    
-    // Limpa lesões/suspensões passadas para reavaliar a nova rodada
-    status.lesionado = false;
-    status.suspenso = false;
-
-    // Cansaço: +5 a 15
-    status.cansaco += Math.floor(Math.random() * 11) + 5; 
-    status.cansaco = Math.min(100, status.cansaco);
-
-    // Risco de Lesão
-    const pLesao = 0.02 + (status.cansaco / 500);
-    if (Math.random() < pLesao) status.lesionado = true;
-
-    // Risco de Suspensão (Cartão)
-    if (Math.random() < 0.01) status.suspenso = true;
-
-    return { ...j, statusFisico: status };
-  });
+// Sorteia um jogador aleatório em campo para um evento
+const sortearJogador = (team: Jogador[]) => {
+  const aptos = team.filter(j => !(j.statusFisico?.lesionado || j.statusFisico?.suspenso));
+  if (aptos.length === 0) return team[0];
+  return aptos[Math.floor(Math.random() * aptos.length)];
 };
 
-// ==========================================
-// SIMULADOR PRINCIPAL
-// ==========================================
 export function simularPartida(teamA: Jogador[], teamB: Jogador[]) {
-  // 4. Força por Setor
+  const eventos: EventoPartida[] = [];
+
+  // PUNIÇÃO: Escalaram jogadores inaptos?
+  const inaptoA = teamA.filter(j => j.statusFisico?.lesionado || j.statusFisico?.suspenso).length;
+  const inaptoB = teamB.filter(j => j.statusFisico?.lesionado || j.statusFisico?.suspenso).length;
+
   const defA = calcSector(teamA, 'DEF') + (calcSector(teamA, 'GOL') * 0.5);
   const meiA = calcSector(teamA, 'MEI');
   const ataA = calcSector(teamA, 'ATA');
@@ -70,49 +59,94 @@ export function simularPartida(teamA: Jogador[], teamB: Jogador[]) {
   const meiB = calcSector(teamB, 'MEI');
   const ataB = calcSector(teamB, 'ATA');
 
-  // 5. Força Total do Time
-  const forceA = (defA * 0.3) + (meiA * 0.35) + (ataA * 0.35);
-  const forceB = (defB * 0.3) + (meiB * 0.35) + (ataB * 0.35);
+  // Fator Casa (+5% de força para o mandante)
+  let forceA = ((defA * 0.3) + (meiA * 0.35) + (ataA * 0.35)) * 1.05; 
+  let forceB = (defB * 0.3) + (meiB * 0.35) + (ataB * 0.35);
 
-  // 6 & 7. Confronto e Fator Aleatório
+  // Aplica a punição por inaptos em campo (Perde 30% da força por cada jogador inapto)
+  forceA *= Math.pow(0.7, inaptoA);
+  forceB *= Math.pow(0.7, inaptoB);
+
   const diff = forceA - forceB;
-  const randomFactor = (Math.random() * 20) - 10; // Fator Sorte ∈ [-10, +10]
+  const randomFactor = (Math.random() * 16) - 8; // Menos sorte louca, mais tática
   const diffFinal = diff + randomFactor;
 
-  // 9. Intensidade Ofensiva (Expected Goals - xG)
-  let expectedA = 1.2 + ((ataA - defB) / 20);
-  expectedA = Math.max(0.2, Math.min(3.5, expectedA));
+  let expectedA = 1.0 + ((ataA - defB) / 15);
+  let expectedB = 0.8 + ((ataB - defA) / 15); // Fora tem um xG base ligeiramente menor
+  
+  expectedA = Math.max(0.1, Math.min(4.0, expectedA));
+  expectedB = Math.max(0.1, Math.min(4.0, expectedB));
 
-  let expectedB = 1.2 + ((ataB - defA) / 20);
-  expectedB = Math.max(0.2, Math.min(3.5, expectedB));
-
-  // Gera os gols
   let golsA = getPoisson(expectedA);
   let golsB = getPoisson(expectedB);
 
-  // 10. Ajuste Final de Viés (Bias)
-  if (diffFinal > 0 && Math.random() < 0.10) golsA++;
-  if (diffFinal < 0 && Math.random() < 0.10) golsB++;
+  // Bias final
+  if (diffFinal > 5 && Math.random() < 0.15) golsA++;
+  if (diffFinal < -5 && Math.random() < 0.15) golsB++;
 
-  // 11. Consequências Físicas Pós-Jogo
-  const homeTeamUpdated = applyPostMatch(teamA);
-  const awayTeamUpdated = applyPostMatch(teamB);
+  // --- GERADOR DE EVENTOS MOMENTO A MOMENTO ---
+  
+  // Golos Casa
+  for (let i = 0; i < golsA; i++) {
+    const min = Math.floor(Math.random() * 90) + 1;
+    const autor = sortearJogador(teamA);
+    eventos.push({ minuto: min, tipo: 'GOL', time: 'CASA', texto: `GOL DO MANDANTE! ${autor.nome} balança a rede!`, jogadorId: autor.id });
+  }
+  
+  // Golos Fora
+  for (let i = 0; i < golsB; i++) {
+    const min = Math.floor(Math.random() * 90) + 1;
+    const autor = sortearJogador(teamB);
+    eventos.push({ minuto: min, tipo: 'GOL', time: 'FORA', texto: `GOL DO VISITANTE! Bela finalização de ${autor.nome}!`, jogadorId: autor.id });
+  }
 
-  // Gera Relatório Visual
-  const relatorio = [
-    `=== ESTATÍSTICAS DA PARTIDA ===`,
-    `[CASA] Força: ${forceA.toFixed(1)} | xG: ${expectedA.toFixed(2)}`,
-    `[FORA] Força: ${forceB.toFixed(1)} | xG: ${expectedB.toFixed(2)}`,
-    `> Pressão na Defesa: ${(ataA - defB).toFixed(1)} vs ${(ataB - defA).toFixed(1)}`,
-    `> Fator "Zebras/Sorte": ${randomFactor > 0 ? '+' : ''}${randomFactor.toFixed(1)}`,
-    `===============================`,
-    `⚽ FIM DE JOGO: Casa ${golsA} x ${golsB} Fora`
-  ];
+  // Evolução Física e Eventos Disciplinares
+  const processarPosJogo = (team: Jogador[], isCasa: boolean) => {
+    return team.map(j => {
+      let status = { ...(j.statusFisico || { cansaco: 1, lesionado: false, suspenso: false }) };
+      
+      // Limpa suspensões antigas
+      status.suspenso = false; 
+      
+      // Se ele já estava lesionado e tentaram usá-lo, o estado dele piora (não cura)
+      if (!status.lesionado) {
+        // Aumenta o cansaço (50% de chance de subir 1 nível, 10% de subir 2 níveis)
+        const chanceCansaco = Math.random();
+        if (chanceCansaco > 0.9) status.cansaco += 2;
+        else if (chanceCansaco > 0.4) status.cansaco += 1;
+        status.cansaco = Math.min(5, Math.max(1, status.cansaco)); // Trava entre 1 e 5
+
+        // Risco de Lesão dinâmico com base na fadiga (nível 5 = 15% de chance)
+        const riscoLesao = [0.01, 0.03, 0.06, 0.10, 0.15];
+        if (Math.random() < riscoLesao[status.cansaco - 1]) {
+          status.lesionado = true;
+          eventos.push({ minuto: Math.floor(Math.random() * 90) + 1, tipo: 'LESAO', time: isCasa ? 'CASA' : 'FORA', texto: `🏥 PREOCUPAÇÃO: ${j.nome} sentiu uma fisgada e caiu no gramado!`, jogadorId: j.id });
+        }
+
+        // Cartões
+        const chanceCartao = Math.random();
+        if (chanceCartao < 0.02) { // 2% de vermelho direto
+          status.suspenso = true;
+          eventos.push({ minuto: Math.floor(Math.random() * 90) + 1, tipo: 'CARTAO_VERMELHO', time: isCasa ? 'CASA' : 'FORA', texto: `🟥 RUA! ${j.nome} comete falta dura e é expulso!`, jogadorId: j.id });
+        } else if (chanceCartao < 0.15) { // 13% de amarelo
+          eventos.push({ minuto: Math.floor(Math.random() * 90) + 1, tipo: 'CARTAO_AMARELO', time: isCasa ? 'CASA' : 'FORA', texto: `🟨 Amarelo para ${j.nome} após reclamação.`, jogadorId: j.id });
+        }
+      }
+
+      return { ...j, statusFisico: status };
+    });
+  };
+
+  const homeTeamUpdated = processarPosJogo(teamA, true);
+  const awayTeamUpdated = processarPosJogo(teamB, false);
+
+  // Ordena a timeline cronologicamente
+  eventos.sort((a, b) => a.minuto - b.minuto);
 
   return {
     golsCasa: golsA,
     golsFora: golsB,
-    relatorio,
+    relatorio: eventos, // O relatório agora é uma timeline real de objetos
     homeTeamUpdated,
     awayTeamUpdated
   };

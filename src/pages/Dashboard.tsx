@@ -140,10 +140,10 @@ export default function Dashboard() {
                     </span>
                     
                     {/* Ícones de Status Físico */}
-                    <div className="flex gap-1 mt-0.5 justify-center h-3">
-                      {jogador.statusFisico?.cansaco > 50 && <span className="text-[8px] sm:text-[10px] drop-shadow-md" title="Cansado">🔋</span>}
-                      {jogador.statusFisico?.lesionado && <span className="text-[8px] sm:text-[10px] drop-shadow-md" title="Lesionado">🏥</span>}
-                      {jogador.statusFisico?.suspenso && <span className="text-[8px] sm:text-[10px] drop-shadow-md" title="Suspenso">🟥</span>}
+                    <div className="flex gap-1 mt-1">
+                      {(jogador.statusFisico?.cansaco ?? 0) > 50 && <span className="text-[10px] drop-shadow-md">🔋</span>}
+                      {jogador.statusFisico?.lesionado && <span className="text-[10px] drop-shadow-md">🏥</span>}
+                      {jogador.statusFisico?.suspenso && <span className="text-[10px] drop-shadow-md">🟥</span>}
                     </div>
                   </div>
 
@@ -199,8 +199,8 @@ export default function Dashboard() {
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border-4 border-white/20 rounded-full"></div>
 
           {renderLinhaCampo('ATA', regraAtual.ATA, 0)}
-          {renderLinhaCampo('MEI', regraAtual.MEI, 3)}
-          {renderLinhaCampo('DEF', regraAtual.DEF, 6)}
+          {renderLinhaCampo('MEI', regraAtual.MEI, regraAtual.ATA)}
+          {renderLinhaCampo('DEF', regraAtual.DEF, regraAtual.ATA + regraAtual.MEI)}
           {renderLinhaCampo('GOL', 1, 10)}
         </div>
       </div>

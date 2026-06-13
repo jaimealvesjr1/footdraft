@@ -1,7 +1,9 @@
+// src/types/index.ts
+
 export type Posicao = 'GOL' | 'DEF' | 'MEI' | 'ATA';
 
 export interface StatusFisico {
-  cansaco: number;
+  cansaco: number; // Agora de 1 a 5
   lesionado: boolean;
   suspenso: boolean;
 }
@@ -10,11 +12,10 @@ export interface Jogador {
   id: string;
   nome: string;
   posicao: Posicao;
-  clubeAtual?: string;      // Opcional (?) para manter compatibilidade
-  clubeHistorico: string;   // Novo campo do seu pack
-  overall: number;          // Novo campo do seu pack
-  statusFisico: StatusFisico; // Novo campo
-  temporadasNoClube: number;  // Novo campo
+  clubeHistorico: string;
+  overall: number;
+  statusFisico?: StatusFisico;
+  temporadasNoClube?: number;
 }
 
 export interface Clube {
@@ -24,41 +25,47 @@ export interface Clube {
   elenco: Jogador[];
 }
 
-export const LIMITES_POSICAO: Record<Posicao, number> = {
-  'GOL': 3,
-  'DEF': 8, 
-  'MEI': 5,
-  'ATA': 5,
+export interface TimeTabela {
+  id: string;
+  pts: number;
+  j: number;
+  v: number;
+  e: number;
+  d: number;
+  gp: number;
+  gc: number;
+  sg: number;
+}
+
+// NOVO: Define a estrutura de um evento narrativo da partida
+export type EventoPartida = {
+  minuto: number;
+  tipo: 'GOL' | 'CARTAO_AMARELO' | 'CARTAO_VERMELHO' | 'LESAO';
+  time: 'CASA' | 'FORA';
+  texto: string;
+  jogadorId?: string;
 };
-
-export const LIMITE_CORINGA = 2;
-
-// ==========================================
-// TIPOS DO ESTADO GLOBAL MULTIPLAYER
-// ==========================================
-export type GamePhase = 'SETUP' | 'PRE_SEASON' | 'FIRST_HALF' | 'TRANSFER_WINDOW' | 'SECOND_HALF' | 'FINISHED';
 
 export interface JogoCamp {
   homeId: string;
   awayId: string;
   homeScore: number | null;
   awayScore: number | null;
-  relatorio: string[];
+  relatorio: EventoPartida[]; // AQUI FOI ALTERADO DE string[] PARA EventoPartida[]
 }
+
+export type GamePhase = 'SETUP' | 'PRE_SEASON' | 'CHAMPIONSHIP' | 'FIRST_HALF' | 'TRANSFER_WINDOW' | 'SECOND_HALF' | 'FINISHED';
 
 export interface GameState {
   phase: GamePhase;
   currentRound: number;
-  draftTurnUid: string | null;      
-  draftDeadline: number | null;     
-  draftOrder: string[];             
-  playersReady: string[];           
-  currentPack?: Jogador[];          
+  draftOrder?: string[];
+  draftTurnUid?: string | null;
+  draftDeadline?: number | null;
+  playersReady: string[];
+  currentPack?: Jogador[];
   currentPicks?: Jogador[];
-  
-  // NOVOS CAMPOS PARA O CAMPEONATO
-  teams?: { id: string, nome: string, isUser: boolean }[];
-  standings?: { id: string, pts: number, j: number, v: number, e: number, d: number, gp: number, gc: number, sg: number }[];
+  teams?: { id: string; nome: string; isUser: boolean; }[];
+  standings?: TimeTabela[];
   schedule?: { jogos: JogoCamp[] }[];
 }
-

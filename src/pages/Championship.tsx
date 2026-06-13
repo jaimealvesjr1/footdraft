@@ -16,35 +16,71 @@ export default function Championship() {
     return () => unsub();
   }, []);
 
-  // Proteção robusta: Se não tem teams ou schedule, não tenta renderizar
-  if (!gameState || !gameState.teams || !gameState.schedule) {
+  if (!gameState || !gameState.teams || gameState.teams.length === 0 || !gameState.schedule || gameState.schedule.length === 0) {
     return (
-      <div className="h-screen bg-neutral-950 flex flex-col items-center justify-center font-sans">
+      <div className="h-screen bg-neutral-950 flex flex-col items-center justify-center font-sans text-center px-4">
         <div className="w-12 h-12 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-yellow-400 font-black tracking-widest uppercase animate-pulse">Carregando Tabela...</p>
+        <p className="text-yellow-400 font-black tracking-widest uppercase animate-pulse mb-2">Aguardando o Sorteio...</p>
+        <p className="text-neutral-500 text-xs font-bold uppercase tracking-widest">O Game Master está a gerar o Calendário de Jogos.</p>
       </div>
     );
   }
 
   const getNomeClube = (id: string) => {
-    // Usamos ?. (optional chaining) para evitar erros caso o team não exista
     const time = gameState?.teams?.find(t => t.id === id);
     return time ? time.nome : "Time não encontrado";
   };
+
+  // ==========================================
+  // TELA DE CELEBRAÇÃO (FIM DO CAMPEONATO)
+  // ==========================================
+  if (gameState.phase === 'FINISHED' || gameState.currentRound > 22) {
+    const campeao = gameState.standings && gameState.standings.length > 0 ? gameState.standings[0] : null;
+    
+    return (
+      <div className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center font-sans p-4 text-center">
+        <h1 className="text-7xl md:text-9xl mb-6 drop-shadow-[0_0_20px_rgba(234,179,8,0.5)]">🏆</h1>
+        <h2 className="text-3xl md:text-5xl font-black uppercase text-yellow-500 tracking-widest mb-4">Fim de Campeonato</h2>
+        <p className="text-neutral-400 text-lg md:text-xl font-bold uppercase tracking-widest mb-8">O Grande Campeão Brasileiro é</p>
+        
+        <div className="bg-yellow-900/20 border-2 border-yellow-500/50 p-8 md:p-12 rounded-3xl shadow-[0_0_80px_rgba(234,179,8,0.15)] max-w-2xl w-full">
+          <h3 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-white mb-2">{campeao ? getNomeClube(campeao.id) : '...'}</h3>
+          {campeao?.id === currentUserUid && (
+             <p className="text-yellow-400 font-black tracking-widest uppercase bg-yellow-900/50 py-2 rounded mb-4 animate-pulse">Parabéns! Você é o Vencedor!</p>
+          )}
+          <div className="flex justify-center gap-6 mt-6 border-t border-yellow-500/30 pt-6">
+            <div className="text-center">
+              <p className="text-xs text-yellow-500/70 font-bold uppercase">Pontos</p>
+              <p className="text-3xl font-black text-yellow-400">{campeao?.pts}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-yellow-500/70 font-bold uppercase">Vitórias</p>
+              <p className="text-3xl font-black text-yellow-400">{campeao?.v}</p>
+            </div>
+          </div>
+        </div>
+
+        <button onClick={() => navigate('/dashboard')} className="mt-12 px-8 py-4 bg-neutral-800 hover:bg-neutral-700 text-white font-black uppercase tracking-widest rounded-xl transition-all shadow-lg border border-neutral-700">
+          Voltar ao Vestiário (CT)
+        </button>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // JOGO NORMAL
+  // ==========================================
   const isReady = gameState.playersReady?.includes(currentUserUid || '');
   const totalUsers = gameState.teams.filter(t => t.isUser).length;
   
-  // Detalhes da Rodada ATUAL (ou a próxima a ser simulada)
-  const rodadaIndex = gameState.currentRound - 1;
-  // Desempacota o array de dentro do objeto da rodada!
+  // Limita o index da rodada a 21 (para não dar erro no array se o Admin simular a mais por engano)
+  const rodadaIndex = Math.min(gameState.currentRound - 1, 21);
   const jogosDaRodada = gameState.schedule[rodadaIndex]?.jogos || [];
   const meuProximoJogo = jogosDaRodada.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
 
-  // Detalhes da Rodada ANTERIOR (para ver o resultado)
-  const rodadaAnteriorIndex = gameState.currentRound - 2;
+  const rodadaAnteriorIndex = rodadaIndex - 1;
   let meuUltimoJogo = null;
   if (rodadaAnteriorIndex >= 0) {
-    // Desempacota o array de dentro do objeto da rodada!
     const jogosAnteriores = gameState.schedule[rodadaAnteriorIndex]?.jogos || [];
     meuUltimoJogo = jogosAnteriores.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
   }
@@ -56,7 +92,9 @@ export default function Championship() {
       <div className="max-w-7xl mx-auto w-full flex justify-between items-center bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-2xl mb-8">
         <div>
           <h1 className="text-3xl font-black text-white uppercase tracking-tighter">Campeonato Brasileiro</h1>
-          <p className="text-cyan-400 font-bold tracking-widest uppercase text-sm mt-1">RODADA {gameState.currentRound} DE 11</p>
+          <p className="text-cyan-400 font-bold tracking-widest uppercase text-sm mt-1">
+            RODADA {Math.min(gameState.currentRound || 1, 22)} DE 22
+          </p>
         </div>
         <button onClick={() => navigate('/dashboard')} className="px-6 py-3 bg-neutral-800 hover:bg-neutral-700 text-yellow-400 font-black uppercase tracking-widest rounded-lg transition-colors border border-neutral-700 shadow-lg">
           ← Voltar ao CT (Vestiário)
@@ -70,9 +108,11 @@ export default function Championship() {
           
           {/* PRÓXIMO JOGO */}
           <div className="bg-neutral-900 p-8 rounded-xl border border-neutral-800 shadow-2xl flex flex-col items-center text-center relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-2 bg-linear-to-r from-yellow-600 to-yellow-300"></div>
+            <div className={`absolute top-0 left-0 w-full h-2 bg-linear-to-r ${gameState.currentRound > 11 ? 'from-purple-600 to-purple-300' : 'from-yellow-600 to-yellow-300'}`}></div>
             
-            <h2 className="text-sm font-black text-neutral-500 mb-8 uppercase tracking-widest">O Seu Próximo Confronto</h2>
+            <h2 className="text-sm font-black text-neutral-500 mb-8 uppercase tracking-widest">
+              {gameState.currentRound > 11 ? 'Fase de Returno (2ª Metade)' : 'O Seu Próximo Confronto'}
+            </h2>
             
             <div className="flex items-center justify-center gap-6 w-full mb-10">
               <div className="flex-1 text-right">
@@ -108,14 +148,29 @@ export default function Championship() {
                   <span className={(meuUltimoJogo.awayScore || 0) > meuUltimoJogo.homeScore ? "text-yellow-400" : "text-white"}>{meuUltimoJogo.awayScore}</span>
                   <div className="text-left flex-1 text-xl md:text-2xl text-neutral-400 uppercase tracking-tighter">{getNomeClube(meuUltimoJogo.awayId)}</div>
                 </div>
-                <ul className="space-y-3 bg-neutral-950 p-6 rounded-lg border border-neutral-800 h-64 overflow-y-auto custom-scrollbar">
-                  {meuUltimoJogo.relatorio.map((linha, idx) => (
-                    <li key={idx} className="text-sm text-neutral-400 font-mono flex items-start gap-2">
-                      <span className="text-cyan-500 font-black">&gt;_</span>
-                      <span>{linha}</span>
-                    </li>
-                  ))}
-                </ul>
+                <ul className="space-y-4 relative">
+                    {meuUltimoJogo.relatorio.length === 0 && (
+                      <li className="text-neutral-500 text-center text-sm font-bold uppercase tracking-widest mt-10">Partida sem eventos de destaque.</li>
+                    )}
+                    {meuUltimoJogo.relatorio.map((evento: any, idx: number) => (
+                      <li key={idx} className="flex items-start gap-4 z-10 relative">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center font-black text-[10px] shrink-0 bg-neutral-900 border-2 border-neutral-700 text-white shadow-lg z-10">
+                          {evento.minuto}'
+                        </div>
+                        <div className={`flex-1 p-3 rounded-xl border ${evento.tipo === 'GOL' ? 'bg-yellow-900/20 border-yellow-500/50' : evento.tipo === 'CARTAO_VERMELHO' ? 'bg-red-950/30 border-red-800/50' : evento.tipo === 'LESAO' ? 'bg-orange-950/30 border-orange-800/50' : 'bg-neutral-900 border-neutral-800'}`}>
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-[10px] uppercase font-black tracking-widest text-neutral-500">{evento.time}</span>
+                            <span className="text-lg">
+                              {evento.tipo === 'GOL' ? '⚽' : evento.tipo === 'CARTAO_AMARELO' ? '🟨' : evento.tipo === 'CARTAO_VERMELHO' ? '🟥' : '🏥'}
+                            </span>
+                          </div>
+                          <p className={`text-sm font-bold ${evento.tipo === 'GOL' ? 'text-yellow-400' : 'text-neutral-300'}`}>
+                            {evento.texto}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
               </div>
             </div>
           )}
