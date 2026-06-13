@@ -1,4 +1,3 @@
-// src/pages/Championship.tsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { db, auth } from "../services/firebase";
@@ -17,25 +16,37 @@ export default function Championship() {
     return () => unsub();
   }, []);
 
-  if (!gameState || !gameState.schedule || !gameState.teams) {
-    return <div className="h-screen bg-neutral-950 flex flex-col items-center justify-center font-sans"><div className="w-12 h-12 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mb-4"></div><p className="text-yellow-400 font-black tracking-widest uppercase animate-pulse">Carregando a Liga...</p></div>;
+  // Proteção robusta: Se não tem teams ou schedule, não tenta renderizar
+  if (!gameState || !gameState.teams || !gameState.schedule) {
+    return (
+      <div className="h-screen bg-neutral-950 flex flex-col items-center justify-center font-sans">
+        <div className="w-12 h-12 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-yellow-400 font-black tracking-widest uppercase animate-pulse">Carregando Tabela...</p>
+      </div>
+    );
   }
 
-  const getNomeClube = (id: string) => gameState.teams?.find(t => t.id === id)?.nome || "Desconhecido";
+  const getNomeClube = (id: string) => {
+    // Usamos ?. (optional chaining) para evitar erros caso o team não exista
+    const time = gameState?.teams?.find(t => t.id === id);
+    return time ? time.nome : "Time não encontrado";
+  };
   const isReady = gameState.playersReady?.includes(currentUserUid || '');
   const totalUsers = gameState.teams.filter(t => t.isUser).length;
   
   // Detalhes da Rodada ATUAL (ou a próxima a ser simulada)
   const rodadaIndex = gameState.currentRound - 1;
-  const jogosDaRodada = gameState.schedule[rodadaIndex] || [];
-  const meuProximoJogo = jogosDaRodada.find(j => j.homeId === currentUserUid || j.awayId === currentUserUid);
+  // Desempacota o array de dentro do objeto da rodada!
+  const jogosDaRodada = gameState.schedule[rodadaIndex]?.jogos || [];
+  const meuProximoJogo = jogosDaRodada.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
 
   // Detalhes da Rodada ANTERIOR (para ver o resultado)
   const rodadaAnteriorIndex = gameState.currentRound - 2;
   let meuUltimoJogo = null;
   if (rodadaAnteriorIndex >= 0) {
-    const jogosAnteriores = gameState.schedule[rodadaAnteriorIndex];
-    meuUltimoJogo = jogosAnteriores.find(j => j.homeId === currentUserUid || j.awayId === currentUserUid);
+    // Desempacota o array de dentro do objeto da rodada!
+    const jogosAnteriores = gameState.schedule[rodadaAnteriorIndex]?.jogos || [];
+    meuUltimoJogo = jogosAnteriores.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
   }
 
   return (

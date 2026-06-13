@@ -331,6 +331,24 @@ export default function Draft() {
   
   const picksObrigatorios = isMyTurn && pacoteAtual.length > 0 ? getMaxPickable() : ESCOLHAS_POR_RODADA;
 
+  // ==========================================
+  // NOVA LÓGICA: ORDENAÇÃO DO ELENCO LATERAL
+  // ==========================================
+  const ordemPosicoesLateral: Record<string, number> = { GOL: 1, DEF: 2, MEI: 3, ATA: 4 };
+  
+  const elencoOrganizado = [...meuElenco, ...(isMyTurn ? escolhasDaRodada : [])].sort((a, b) => {
+    // 1º Critério: Ordem da Posição no Campo
+    const pesoA = ordemPosicoesLateral[a.posicao] || 5;
+    const pesoB = ordemPosicoesLateral[b.posicao] || 5;
+    
+    if (pesoA !== pesoB) {
+      return pesoA - pesoB; // Quem tem o peso menor (ex: GOL=1) sobe na lista
+    }
+    
+    // 2º Critério: Ordem Alfabética do Nome (se tiverem a mesma posição)
+    return a.nome.localeCompare(b.nome);
+  });
+
   const renderSequenciaDraft = () => (
     <div className="bg-black p-3 flex gap-4 overflow-x-auto border-b border-neutral-800 custom-scrollbar items-center">
       <span className="text-yellow-500 font-black text-xs uppercase whitespace-nowrap tracking-widest">Ordem do Draft:</span>
@@ -486,7 +504,7 @@ export default function Draft() {
             Elenco <span className="text-yellow-400 block text-sm tracking-widest">{nomeTime}</span>
           </h3>
           <ul className="space-y-2 flex-1 overflow-y-auto custom-scrollbar pr-2">
-            {[...meuElenco, ...(isMyTurn ? escolhasDaRodada : [])].map((j, i) => (
+            {elencoOrganizado.map((j, i) => (
               <li key={i} className={`flex justify-between items-center p-3 rounded-lg border ${(isMyTurn && escolhasDaRodada.some(e => e.id === j.id)) ? 'bg-yellow-900/10 border-yellow-500/50' : 'bg-neutral-950 border-neutral-800'}`}>
                 <span className="font-bold text-neutral-200 text-sm truncate w-32">{j.nome}</span>
                 <span className="text-[10px] font-black text-cyan-400 bg-neutral-900 px-2 py-1 rounded border border-neutral-800">{j.posicao}</span>

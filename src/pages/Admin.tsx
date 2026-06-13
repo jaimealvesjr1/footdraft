@@ -81,54 +81,46 @@ export default function Admin() {
   const salvarClube = async () => {
     if (!clubeEmEdicao) return;
     setSalvando(true);
+    
     try {
-      await setDoc(doc(db, "clubes", clubeEmEdicao.id), clubeEmEdicao);
-      alert(`✅ O time ${clubeEmEdicao.nome} foi salvo no banco de dados!`);
-      setClubeEmEdicao(null); setJsonImportado(''); setTermoBusca('');
-    } catch (error) { alert("❌ Erro ao salvar."); } 
-    finally { setSalvando(false); }
+      // 1. Criamos o nome formatado (Ex: "Cruzeiro 2003")
+      const nomeCompletoClube = `${clubeEmEdicao.nome} ${clubeEmEdicao.ano}`.trim();
+
+      // 2. Sanitização: Limpamos o elenco antes de salvar
+      const clubeSanitizado = {
+        ...clubeEmEdicao,
+        elenco: clubeEmEdicao.elenco.map(jogador => ({
+          ...jogador,
+          clubeHistorico: nomeCompletoClube, // Atualiza o nome que aparece na carta
+          statusFisico: { 
+            cansaco: 0, 
+            lesionado: false, 
+            suspenso: false 
+          } // Cura todo mundo e tira os cartões
+        }))
+      };
+
+      // 3. Salvamos o clube já higienizado no banco de dados
+      await setDoc(doc(db, "clubes", clubeSanitizado.id), clubeSanitizado);
+      
+      alert(`✅ O time ${clubeSanitizado.nome} foi salvo! Todos os jogadores estão a 100% e com o nome corrigido.`);
+      
+      // Limpa os campos do formulário
+      setClubeEmEdicao(null); 
+      setJsonImportado(''); 
+      setTermoBusca('');
+      
+    } catch (error) { 
+      alert("❌ Erro ao salvar."); 
+    } finally { 
+      setSalvando(false); 
+    }
   };
 
   const excluirClube = async (idClube: string) => {
     if (window.confirm("ATENÇÃO! Excluir este time do banco de dados definitivamente?")) {
       await deleteDoc(doc(db, "clubes", idClube));
     }
-  };
-
-  // ==========================================
-  // MOTOR DE CAMPEONATO: GERAR LIGA (12 TIMES)
-  // ==========================================
-  const iniciarCampeonato = async () => {
-    if (!window.confirm("Gerar tabela do 1º Turno? Isso apagará ligas anteriores.")) return;
-    try {
-      const usersSnap = await getDocs(collection(db, "usuarios"));
-      const botsSnap = await getDocs(collection(db, "clubes"));
-      
-      let teams: { id: string; nome: string; isUser: boolean; }[] = [];
-      usersSnap.forEach(d => { if (d.data().elencoPronto) teams.push({ id: d.id, nome: d.data().nomeTime, isUser: true }); });
-      botsSnap.forEach(d => { if (d.data().elenco?.length >= 11) teams.push({ id: d.id, nome: `${d.data().nome} ${d.data().ano}`, isUser: false }); });
-      
-      teams = teams.slice(0, 12);
-      if (teams.length < 12) return alert("Faltam times (usuários + bots) para formar 12 equipes.");
-
-      const standings = teams.map(t => ({ id: t.id, pts: 0, j: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0 }));
-
-      let tempIds = teams.map(t => t.id);
-      const rounds = [];
-      for (let i = 0; i < tempIds.length - 1; i++) {
-        const matches = [];
-        for (let j = 0; j < tempIds.length / 2; j++) {
-          matches.push({ homeId: tempIds[j], awayId: tempIds[tempIds.length - 1 - j], homeScore: null, awayScore: null, relatorio: [] });
-        }
-        rounds.push(matches);
-        tempIds.splice(1, 0, tempIds.pop()!);
-      }
-
-      await setDoc(doc(db, "game", "state"), {
-        phase: 'FIRST_HALF', currentRound: 1, playersReady: [], teams, standings, schedule: rounds
-      }, { merge: true });
-      alert("🏆 Tabela gerada! O 1º Turno começou.");
-    } catch (e) { alert("Erro ao gerar campeonato."); }
   };
 
   // ==========================================
@@ -139,30 +131,47 @@ export default function Admin() {
     setSalvando(true);
 
     const rodadaIndex = gameState.currentRound - 1;
-    const jogos = gameState.schedule[rodadaIndex];
+    const rodadaAtualData = gameState.schedule[rodadaIndex];
+    if (!rodadaAtualData) { setSalvando(false); return; }
+    
+    const jogos = rodadaAtualData.jogos;
     let novosStandings = [...gameState.standings];
-
-    const getElenco = async (id: string, isUser: boolean) => {
-      const docSnap = await getDoc(doc(db, isUser ? "usuarios" : "clubes", id));
-      if (!docSnap.exists()) return [];
-      const dados = docSnap.data();
-      if (isUser && dados.titularesIds) {
-        return dados.elenco.filter((j: Jogador) => dados.titularesIds.includes(j.id));
-      }
-      return dados.elenco.slice(0, 11);
-    };
 
     for (let jogo of jogos) {
       const isHomeUser = gameState.teams?.find(t => t.id === jogo.homeId)?.isUser || false;
       const isAwayUser = gameState.teams?.find(t => t.id === jogo.awayId)?.isUser || false;
       
-      const homeTeam = await getElenco(jogo.homeId, isHomeUser);
-      const awayTeam = await getElenco(jogo.awayId, isAwayUser);
+      const homeDoc = await getDoc(doc(db, isHomeUser ? "usuarios" : "clubes", jogo.homeId));
+      const awayDoc = await getDoc(doc(db, isAwayUser ? "usuarios" : "clubes", jogo.awayId));
+      
+      const homeElencoCompleto = homeDoc.data()?.elenco as Jogador[] || [];
+      const awayElencoCompleto = awayDoc.data()?.elenco as Jogador[] || [];
 
-      const resultado = simularPartida(homeTeam, awayTeam);
+      const homeTitulares = isHomeUser ? homeElencoCompleto.filter(j => homeDoc.data()?.titularesIds?.includes(j.id)) : homeElencoCompleto.slice(0, 11);
+      const awayTitulares = isAwayUser ? awayElencoCompleto.filter(j => awayDoc.data()?.titularesIds?.includes(j.id)) : awayElencoCompleto.slice(0, 11);
+
+      const resultado = simularPartida(homeTitulares, awayTitulares);
       jogo.homeScore = resultado.golsCasa;
       jogo.awayScore = resultado.golsFora;
       jogo.relatorio = resultado.relatorio;
+
+      const mergeRoster = (elencoInteiro: Jogador[], titularesCansados: Jogador[]) => {
+        return elencoInteiro.map(j => {
+          const jogou = titularesCansados.find(s => s.id === j.id);
+          if (jogou) return jogou; 
+          
+          let status = { ...(j.statusFisico || { cansaco: 0, lesionado: false, suspenso: false }) };
+          status.cansaco = Math.max(0, status.cansaco - 15);
+          status.suspenso = false; 
+          return { ...j, statusFisico: status };
+        });
+      };
+
+      const novoHomeElenco = mergeRoster(homeElencoCompleto, resultado.homeTeamUpdated);
+      const novoAwayElenco = mergeRoster(awayElencoCompleto, resultado.awayTeamUpdated);
+
+      await updateDoc(doc(db, isHomeUser ? "usuarios" : "clubes", jogo.homeId), { elenco: novoHomeElenco });
+      await updateDoc(doc(db, isAwayUser ? "usuarios" : "clubes", jogo.awayId), { elenco: novoAwayElenco });
 
       const updateStanding = (id: string, gf: number, gc: number) => {
         let t = novosStandings.find(s => s.id === id);
@@ -177,18 +186,22 @@ export default function Admin() {
 
     novosStandings.sort((a, b) => b.pts !== a.pts ? b.pts - a.pts : (b.sg !== a.sg ? b.sg - a.sg : b.gp - a.gp));
 
-    let updatedSchedule = [...gameState.schedule];
-    updatedSchedule[rodadaIndex] = jogos;
+    let updatedSchedule = gameState.schedule.map((rodada, index) => {
+      if (index === rodadaIndex) {
+        return { jogos: jogos }; 
+      }
+      return rodada; 
+    });
 
-    await setDoc(doc(db, "game", "state"), {
+    await updateDoc(doc(db, "game", "state"), {
       schedule: updatedSchedule,
       standings: novosStandings,
       currentRound: gameState.currentRound + 1,
       playersReady: []
-    }, { merge: true });
+    });
 
     setSalvando(false);
-    alert("⚽ Rodada Simulada com Sucesso! Os jogadores já podem ver os resultados.");
+    alert("⚽ Rodada Simulada com Sucesso! Os jogadores já podem ver os resultados e o Cansaço das equipas.");
   };
 
   // ==========================================
@@ -237,7 +250,98 @@ export default function Admin() {
   };
 
   // ==========================================
-  // RENDERIZAÇÃO E INTERFACE (FUT PREMIUM)
+  // O MOTOR QUE GERA A TABELA DO CAMPEONATO
+  // ==========================================
+  const gerarCampeonato = async () => {
+    try {
+      const usersSnap = await getDocs(collection(db, "usuarios"));
+      const times: { id: string; nome: string; isUser: boolean }[] = [];
+
+      usersSnap.forEach((docSnap) => {
+        const dados = docSnap.data();
+        if (dados.nomeTime) {
+          times.push({ id: docSnap.id, nome: String(dados.nomeTime), isUser: true });
+        }
+      });
+
+      const botsSnap = await getDocs(collection(db, "clubes"));
+      const clubesBots: { id: string; nome: string; isUser: boolean }[] = [];
+      
+      botsSnap.forEach(d => {
+        const dados = d.data();
+        if (dados.elenco && Array.isArray(dados.elenco) && dados.elenco.length >= 11) {
+          const nomeClube = dados.nome ? String(dados.nome) : "Clube Desconhecido";
+          const anoClube = dados.ano ? String(dados.ano) : "";
+          
+          clubesBots.push({ 
+            id: d.id, 
+            nome: `${nomeClube} ${anoClube}`.trim(), 
+            isUser: false 
+          });
+        }
+      });
+      
+      clubesBots.sort(() => Math.random() - 0.5);
+
+      const TOTAL_TIMES = 12;
+      while (times.length < TOTAL_TIMES && clubesBots.length > 0) {
+        const bot = clubesBots.pop();
+        if (bot) times.push(bot);
+      }
+
+      if (times.length < TOTAL_TIMES) {
+        alert(`Atenção: Tem apenas ${times.length} times disponíveis (Usuários + Clubes). Precisa de 12 para iniciar a Liga. Importe mais times no Admin!`);
+        return; 
+      }
+
+      const standings = times.map(t => ({
+        id: t.id, pts: 0, j: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0   
+      }));
+
+      const numRodadas = TOTAL_TIMES - 1;
+      const metade = TOTAL_TIMES / 2;
+      const schedule: { jogos: any[] }[] = []; 
+      
+      let idsRotacao = times.map(t => t.id);
+
+      for (let rodada = 0; rodada < numRodadas; rodada++) {
+        const jogosDaRodada = [];
+
+        for (let i = 0; i < metade; i++) {
+          const casa = idsRotacao[i];
+          const fora = idsRotacao[TOTAL_TIMES - 1 - i];
+
+          if (i === 0 && rodada % 2 === 1) {
+            jogosDaRodada.push({ homeId: fora, awayId: casa, homeScore: null, awayScore: null, relatorio: [] });
+          } else {
+            jogosDaRodada.push({ homeId: casa, awayId: fora, homeScore: null, awayScore: null, relatorio: [] });
+          }
+        }
+        
+        schedule.push({ jogos: jogosDaRodada }); 
+
+        const ultimoId = idsRotacao.pop();
+        if (ultimoId) idsRotacao.splice(1, 0, ultimoId);
+      }
+
+      await updateDoc(doc(db, "game", "state"), {
+        teams: times,
+        standings: standings,
+        schedule: schedule,
+        currentRound: 1, 
+        phase: 'CHAMPIONSHIP' 
+      });
+
+      alert("🏆 Campeonato Gerado com Sucesso! Foram criadas 11 rodadas para 12 equipas.");
+
+    } catch (error) {
+      console.error("Erro ao gerar campeonato:", error);
+      alert("Ocorreu um erro ao gerar a tabela. Verifique a consola para mais detalhes.");
+    }
+  };
+
+  // ==========================================
+  // RENDERIZAÇÃO E INTERFACE
   // ==========================================
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-200 p-8 font-sans">
@@ -248,10 +352,14 @@ export default function Admin() {
           <h2 className="font-black text-xl text-yellow-400 mb-4 uppercase tracking-widest">Controle do Campeonato (Multiplayer)</h2>
           
           <div className="flex flex-wrap gap-3 mb-4">
-            {/* O SEU CÓDIGO ANTERIOR TERMINAVA POR AQUI, FALTAVAM ESTES BOTÕES ABAIXO: */}
             <button onClick={() => mudarFase('SETUP')} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 font-bold rounded text-white shadow-lg transition-all">1. Sala de Espera</button>
             <button onClick={iniciarPreTemporada} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 border border-yellow-500/50 text-yellow-500 font-bold rounded shadow-lg transition-all">2. Iniciar Pré-Temporada</button>
-            <button onClick={iniciarCampeonato} className="px-4 py-2 bg-yellow-500 hover:bg-yellow-400 font-black tracking-widest uppercase rounded text-neutral-950 shadow-lg transition-all">3. Gerar Tabela (1º Turno)</button>
+            <button 
+              onClick={gerarCampeonato}
+              className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-black uppercase tracking-widest py-4 rounded-xl shadow-lg mt-4"
+            >
+              🏆 Iniciar Campeonato (Gerar Tabela de Jogos)
+            </button>
             <button onClick={simularRodadaAtual} disabled={salvando} className="px-4 py-2 bg-cyan-700 hover:bg-cyan-600 font-black tracking-widest uppercase rounded text-white shadow-lg transition-all">
                {salvando ? 'A Simular...' : 'Simular Rodada Atual ⚽'}
             </button>
@@ -269,7 +377,6 @@ export default function Admin() {
         {/* GERENCIADOR DE CLUBES (DB e Importação) */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* LADO ESQUERDO: Importação e Lista */}
           <div className="space-y-8">
             <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800">
               <h2 className="font-bold text-lg text-white mb-4 uppercase tracking-widest">Importar JSON (IA)</h2>

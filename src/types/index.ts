@@ -59,6 +59,6 @@ export interface GameState {
   // NOVOS CAMPOS PARA O CAMPEONATO
   teams?: { id: string, nome: string, isUser: boolean }[];
   standings?: { id: string, pts: number, j: number, v: number, e: number, d: number, gp: number, gc: number, sg: number }[];
-  schedule?: JogoCamp[][]; // Ex: schedule[0] = Todos os jogos da Rodada 1
+  schedule?: { jogos: JogoCamp[] }[];
 }
 
