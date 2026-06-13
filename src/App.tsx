@@ -1,4 +1,3 @@
-// src/App.tsx
 import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { onAuthStateChanged, type User } from "firebase/auth";
@@ -6,23 +5,70 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "./services/firebase";
 import { type GamePhase } from "./types";
 
-// Importações das páginas
+// Importações das páginas e componentes
 import Login from "./pages/Login";
 import Draft from "./pages/Draft";
-import TransferWindow from "./pages/TransferWindow"; // 👈 NOVA IMPORTAÇÃO AQUI!
+import TransferWindow from "./pages/TransferWindow";
 import Dashboard from "./pages/Dashboard";
 import Championship from "./pages/Championship";
 import Admin from './pages/Admin';
 import WaitingRoom from './pages/WaitingRoom';
+import Header from "./components/Header";
+import Footer from "./components/Footer";
+
+// ==========================================
+// BARREIRA DE SEGURANÇA DO ADMIN
+// ==========================================
+const AdminProtegido = () => {
+  const [autenticado, setAutenticado] = useState(false);
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+
+  if (autenticado) return <Admin />;
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (senha === "2525") {
+      setAutenticado(true);
+    } else {
+      setErro("Senha incorreta. Acesso negado.");
+      setSenha("");
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center font-sans p-4">
+      <div className="bg-neutral-900 p-8 rounded-xl border border-neutral-800 shadow-2xl w-full max-w-sm">
+        <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-2 text-center">Acesso Restrito</h2>
+        <p className="text-xs text-neutral-500 uppercase font-bold tracking-widest mb-8 text-center">Painel do Game Master</p>
+        
+        <form onSubmit={handleLogin} className="flex flex-col gap-4">
+          <input 
+            type="password" 
+            value={senha} 
+            onChange={(e) => setSenha(e.target.value)} 
+            placeholder="Digite a Senha" 
+            className="w-full bg-neutral-950 border border-neutral-800 p-4 rounded-xl text-yellow-500 font-black text-center tracking-[0.5em] focus:outline-none focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 transition-colors" 
+            autoFocus 
+          />
+          {erro && <p className="text-orange-500 text-xs font-bold uppercase tracking-widest text-center mt-1">{erro}</p>}
+          <button 
+            type="submit" 
+            className="w-full bg-yellow-500 hover:bg-yellow-400 text-neutral-950 font-black uppercase tracking-widest py-4 rounded-xl transition-colors shadow-lg mt-2"
+          >
+            Destravar Painel
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [gamePhase, setGamePhase] = useState<GamePhase | string>('SETUP');
 
-  // ==========================================
-  // LÓGICA DE CONEXÃO COM O SERVIDOR
-  // ==========================================
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (usuarioAtual) => {
       setUser(usuarioAtual);
@@ -38,9 +84,6 @@ export default function App() {
     return () => { unsubscribeAuth(); unsubscribeGame(); };
   }, []);
 
-  // ==========================================
-  // RENDERIZAÇÃO: TELA DE CARREGAMENTO
-  // ==========================================
   if (loading) {
     return (
       <div className="h-screen bg-neutral-950 flex flex-col items-center justify-center font-sans">
@@ -52,59 +95,42 @@ export default function App() {
     );
   }
 
-  // ==========================================
-  // LÓGICA DE REDIRECIONAMENTO MULTIPLAYER
-  // ==========================================
-  // Separamos o Draft da Janela de Transferências para evitar conflitos
   const isDraftPhase = gamePhase === 'PRE_SEASON';
   const isTransferPhase = gamePhase === 'TRANSFER_WINDOW';
-  const isPlayingPhase = ['FIRST_HALF', 'SECOND_HALF', 'CHAMPIONSHIP'].includes(gamePhase);
+  const isPlayingPhase = ['CHAMPIONSHIP', 'FIRST_HALF', 'SECOND_HALF', 'FINISHED'].includes(gamePhase);
 
   const RenderHome = () => {
     if (!user) return <Login />;
-    
-    // Direcionamento Inteligente
     if (isDraftPhase) return <Navigate to="/draft" />;
-    if (isTransferPhase) return <Navigate to="/transfer" />; // 👈 Vai para a rota nova!
+    if (isTransferPhase) return <Navigate to="/transfer" />; 
     if (isPlayingPhase) return <Navigate to="/dashboard" />;
-    
-    // Fallback para 'SETUP' ou qualquer fase desconhecida
     return <WaitingRoom />; 
   };
 
-  // ==========================================
-  // ROTEADOR PRINCIPAL
-  // ==========================================
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<RenderHome />} />
+      {/* Container Principal que ocupa a tela toda */}
+      <div className="min-h-screen flex flex-col bg-neutral-950">
         
-        {/* ROTA 1: Pré-Temporada */}
-        <Route 
-          path="/draft" 
-          element={user && isDraftPhase ? <Draft /> : <Navigate to="/" />} 
-        />
+        {/* HEADER GLOBAL */}
+        <Header />
 
-        {/* ROTA 2: Janela de Transferências (Agora injetando o UID!) */}
-        <Route 
-          path="/transfer" 
-          element={user && isTransferPhase ? <TransferWindow uid={user.uid} /> : <Navigate to="/" />} 
-        />
+        {/* Área Central (Rotas) */}
+        <div className="flex-1">
+          <Routes>
+            <Route path="/" element={<RenderHome />} />
+            <Route path="/draft" element={user && isDraftPhase ? <Draft /> : <Navigate to="/" />} />
+            <Route path="/transfer" element={user && isTransferPhase ? <TransferWindow uid={user.uid} /> : <Navigate to="/" />} />
+            <Route path="/dashboard" element={user && isPlayingPhase ? <Dashboard /> : <Navigate to="/" />} />
+            <Route path="/championship" element={user && isPlayingPhase ? <Championship /> : <Navigate to="/" />} />
+            <Route path="/admin" element={<AdminProtegido />} />
+          </Routes>
+        </div>
+
+        {/* FOOTER GLOBAL - Agora ele está DENTRO da div pai */}
+        <Footer />
         
-        {/* ROTA 3: Painel de Jogo */}
-        <Route 
-          path="/dashboard" 
-          element={user && isPlayingPhase ? <Dashboard /> : <Navigate to="/" />} 
-        />
-        <Route 
-          path="/championship" 
-          element={user && isPlayingPhase ? <Championship /> : <Navigate to="/" />} 
-        />
-        
-        {/* Rota do Game Master (Admin) */}
-        <Route path="/admin" element={<Admin />} />
-      </Routes>
+      </div> 
     </BrowserRouter>
   );
 }

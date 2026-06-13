@@ -29,48 +29,58 @@ export default function Login() {
   };
 
   return (
-    <div className="h-screen flex items-center justify-center bg-slate-900">
-      <div className="bg-slate-800 p-8 rounded-lg shadow-xl w-96 text-white border border-slate-700">
-        <h2 className="text-2xl font-bold mb-6 text-center text-emerald-400">
-          {isLogin ? "Entrar no FootDraft" : "Criar Nova Conta"}
+    <div className="min-h-screen flex items-center justify-center bg-neutral-950 font-sans p-4">
+      <div className="bg-neutral-900 p-8 rounded-2xl shadow-2xl w-full max-w-md border border-neutral-800 relative overflow-hidden">
+        {/* Detalhe visual de topo */}
+        <div className="absolute top-0 left-0 w-full h-1.5 bg-linear-to-r from-yellow-600 to-yellow-400"></div>
+
+        <h2 className="text-3xl font-black mb-2 text-center text-white uppercase tracking-tighter mt-2">
+          Foot<span className="text-yellow-500">Draft26</span>
         </h2>
+        <p className="text-center text-xs text-neutral-500 uppercase tracking-widest font-bold mb-8">
+          {isLogin ? "Acesso ao Vestiário" : "Inicie sua Jornada"}
+        </p>
         
         <form onSubmit={handleAutenticacao} className="flex flex-col gap-4">
-          <input
-            type="email"
-            placeholder="E-mail"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="p-3 rounded bg-slate-700 border border-slate-600 focus:outline-none focus:border-emerald-400 text-white"
-            required
-          />
-          <input
-            type="password"
-            placeholder="Senha (mín. 6 caracteres)"
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            className="p-3 rounded bg-slate-700 border border-slate-600 focus:outline-none focus:border-emerald-400 text-white"
-            required
-          />
+          <div>
+            <input
+              type="email"
+              placeholder="E-mail"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full p-4 rounded-xl bg-neutral-950 border border-neutral-800 focus:outline-none focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 text-white font-bold transition-all placeholder:text-neutral-600"
+              required
+            />
+          </div>
+          <div>
+            <input
+              type="password"
+              placeholder="Senha (mín. 6 caracteres)"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              className="w-full p-4 rounded-xl bg-neutral-950 border border-neutral-800 focus:outline-none focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 text-white font-bold transition-all placeholder:text-neutral-600"
+              required
+            />
+          </div>
           
-          {erro && <p className="text-red-400 text-sm">{erro}</p>}
+          {erro && <p className="text-orange-500 text-xs font-bold uppercase tracking-widest text-center mt-2">{erro}</p>}
 
           <button 
             type="submit" 
-            className="bg-emerald-500 text-slate-900 font-bold px-6 py-3 rounded mt-2 hover:bg-emerald-400 transition"
+            className="w-full bg-yellow-500 text-neutral-950 font-black uppercase tracking-widest px-6 py-4 rounded-xl mt-4 hover:bg-yellow-400 transition-all shadow-[0_0_15px_rgba(250,204,21,0.2)]"
           >
-            {isLogin ? "Entrar" : "Finalizar Cadastro"}
+            {isLogin ? "Entrar na Conta" : "Finalizar Cadastro"}
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-slate-400">
-          {isLogin ? "Não tem conta? " : "Já possui conta? "}
+        <p className="mt-8 text-center text-xs font-bold uppercase tracking-widest text-neutral-500 border-t border-neutral-800 pt-6">
+          {isLogin ? "Ainda não tem um time? " : "Já possui um clube? "}
           <button 
             type="button"
             onClick={() => setIsLogin(!isLogin)} 
-            className="text-emerald-400 hover:underline font-semibold"
+            className="text-cyan-400 hover:text-cyan-300 transition-colors ml-1"
           >
-            {isLogin ? "Cadastre-se" : "Faça Login"}
+            {isLogin ? "Criar Conta" : "Fazer Login"}
           </button>
         </p>
       </div>

@@ -376,85 +376,101 @@ export default function Admin() {
         </div>
 
         {/* ========================================== */}
-        {/* DATABASE IMPORT E EDITOR MANTIDOS INTACTOS */}
+        {/* GERENCIADOR DE CLUBES (DB e Importação) */}
         {/* ========================================== */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pt-8 border-t border-neutral-900">
           <div className="space-y-8">
-            {/* Lado Esquerdo do Editor... mantido igualzinho */}
-            <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800">
-              <h2 className="font-bold text-lg text-white mb-4 uppercase tracking-widest">Importar JSON (IA)</h2>
-              <input type="text" placeholder="Prompt (Ex: Cruzeiro 2003)" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 text-white p-2 rounded mb-2 focus:border-yellow-500 outline-none"/>
-              {promptParaIA && <button onClick={() => navigator.clipboard.writeText(promptParaIA)} className="w-full mb-4 text-xs bg-cyan-900/30 text-cyan-400 py-2 rounded font-bold uppercase tracking-widest hover:bg-cyan-900/50 transition-colors">Copiar Prompt</button>}
-              <textarea placeholder='Cole o JSON...' value={jsonImportado} onChange={(e) => setJsonImportado(e.target.value)} className="w-full h-32 p-2 bg-neutral-950 border border-neutral-800 rounded text-xs text-yellow-500 font-mono mb-2 focus:border-yellow-500 outline-none"/>
-              <button onClick={carregarJson} disabled={!jsonImportado} className="w-full bg-yellow-500 text-neutral-950 py-2 rounded font-black uppercase tracking-widest hover:bg-yellow-400 disabled:opacity-50 transition-colors">Analisar e Editar</button>
-              {erroJson && <p className="text-orange-500 text-xs mt-2 font-bold">{erroJson}</p>}
+            <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-xl">
+              <h2 className="font-black text-lg text-white mb-4 uppercase tracking-widest flex items-center gap-2">
+                <span className="text-cyan-400">🤖</span> Importar JSON
+              </h2>
+              <input type="text" placeholder="Prompt (Ex: Cruzeiro 2003)" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 text-white p-3 rounded-xl mb-3 focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all placeholder:text-neutral-600 font-bold"/>
+              {promptParaIA && <button onClick={() => navigator.clipboard.writeText(promptParaIA)} className="w-full mb-4 text-xs bg-cyan-900/20 border border-cyan-900/50 text-cyan-400 py-3 rounded-lg font-black uppercase tracking-widest hover:bg-cyan-900/40 transition-colors">Copiar Prompt Gerado</button>}
+              <textarea placeholder='Cole o JSON retornado pela IA aqui...' value={jsonImportado} onChange={(e) => setJsonImportado(e.target.value)} className="w-full h-32 p-4 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-yellow-500 font-mono mb-4 focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all placeholder:text-neutral-700"/>
+              <button onClick={carregarJson} disabled={!jsonImportado} className="w-full bg-yellow-500 text-neutral-950 py-3 rounded-xl font-black uppercase tracking-widest hover:bg-yellow-400 disabled:opacity-50 transition-colors shadow-lg">Analisar e Editar JSON</button>
+              {erroJson && <p className="text-orange-500 text-xs mt-3 font-bold bg-orange-950/30 p-2 rounded">{erroJson}</p>}
             </div>
 
-            <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 max-h-96 overflow-y-auto custom-scrollbar">
-              <h2 className="font-bold text-lg text-white mb-4 uppercase tracking-widest">Clubes no Banco ({clubesSalvos.length})</h2>
-              {clubesSalvos.map(clube => (
-                <div key={clube.id} className="flex justify-between items-center bg-neutral-950 p-3 mb-2 rounded border border-neutral-800 hover:border-neutral-700 transition-colors">
-                  <div>
-                    <p className="font-black text-white uppercase">{clube.nome} <span className="text-yellow-500">{clube.ano}</span></p>
-                    <p className="text-xs text-cyan-400 font-bold tracking-widest">{clube.elenco.length} Jogadores</p>
+            <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-xl max-h-[500px] overflow-y-auto custom-scrollbar">
+              <h2 className="font-black text-lg text-white mb-4 uppercase tracking-widest flex items-center justify-between">
+                Banco de Clubes <span className="bg-neutral-800 text-neutral-400 text-xs py-1 px-3 rounded-full">{clubesSalvos.length}</span>
+              </h2>
+              <div className="space-y-3">
+                {clubesSalvos.map(clube => (
+                  <div key={clube.id} className="flex justify-between items-center bg-neutral-950 p-4 rounded-xl border border-neutral-800 hover:border-neutral-700 hover:bg-neutral-900/50 transition-all">
+                    <div>
+                      <p className="font-black text-white uppercase tracking-tight">{clube.nome} <span className="text-yellow-500">{clube.ano}</span></p>
+                      <p className="text-[10px] text-cyan-400 font-black uppercase tracking-widest mt-1">{clube.elenco.length} Atletas</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setClubeEmEdicao(clube)} className="text-xs bg-neutral-800 px-4 py-2 rounded-lg font-black text-white hover:bg-neutral-700 hover:text-yellow-400 transition-colors shadow-sm">Editar</button>
+                      <button onClick={() => excluirClube(clube.id)} className="text-xs bg-red-950/40 text-red-500 px-3 py-2 rounded-lg font-black hover:bg-red-900 hover:text-white transition-colors">X</button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => setClubeEmEdicao(clube)} className="text-xs bg-neutral-800 px-3 py-2 rounded font-bold text-white hover:bg-neutral-700 hover:text-yellow-400 transition-colors">✏️ Editar</button>
-                    <button onClick={() => excluirClube(clube.id)} className="text-xs bg-red-950/50 px-3 py-2 rounded font-bold hover:bg-red-900 transition-colors">🗑️</button>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
 
           <div className="lg:col-span-2">
             {clubeEmEdicao ? (
-              <div className="bg-neutral-900 p-6 rounded-xl border border-yellow-500 shadow-[0_0_20px_rgba(250,204,21,0.1)]">
-                <div className="flex justify-between items-center mb-6 border-b border-neutral-800 pb-4">
-                  <h2 className="text-2xl font-black text-white uppercase tracking-widest">Editor de Elenco</h2>
-                  <div className="flex gap-4">
-                    <button onClick={() => setClubeEmEdicao(null)} className="px-4 py-2 bg-neutral-800 rounded font-bold text-white hover:bg-neutral-700 transition-colors">Cancelar</button>
-                    <button onClick={salvarClube} disabled={salvando} className="px-4 py-2 bg-yellow-500 rounded font-black uppercase tracking-widest text-neutral-950 hover:bg-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.3)] transition-colors">{salvando ? 'Salvando...' : 'Salvar Alterações'}</button>
+              <div className="bg-neutral-900 p-6 rounded-xl border border-yellow-500/50 shadow-[0_0_30px_rgba(250,204,21,0.05)] flex flex-col h-full">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 border-b border-neutral-800 pb-6 gap-4">
+                  <div>
+                    <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Inspetor de Elenco</h2>
+                    <p className="text-xs text-neutral-500 font-bold uppercase tracking-widest mt-1">Ajuste OVR e posições antes de injetar na base.</p>
+                  </div>
+                  <div className="flex gap-3 w-full md:w-auto">
+                    <button onClick={() => setClubeEmEdicao(null)} className="flex-1 md:flex-none px-6 py-3 bg-neutral-800 rounded-xl font-black uppercase tracking-widest text-neutral-400 hover:bg-neutral-700 hover:text-white transition-colors">Descartar</button>
+                    <button onClick={salvarClube} disabled={salvando} className="flex-1 md:flex-none px-6 py-3 bg-yellow-500 rounded-xl font-black uppercase tracking-widest text-neutral-950 hover:bg-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)] transition-colors">{salvando ? 'A Processar...' : 'Injetar na Base'}</button>
                   </div>
                 </div>
 
-                <div className="flex gap-4 mb-6">
+                <div className="flex flex-col md:flex-row gap-4 mb-8">
                   <div className="flex-1">
-                    <label className="block text-xs font-bold text-cyan-400 uppercase tracking-widest mb-1">Nome do Clube</label>
-                    <input type="text" value={clubeEmEdicao.nome} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, nome: e.target.value})} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded text-white font-black uppercase focus:border-yellow-500 outline-none transition-colors"/>
+                    <label className="block text-[10px] font-black text-cyan-400 uppercase tracking-widest mb-2">Designação do Clube</label>
+                    <input type="text" value={clubeEmEdicao.nome} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, nome: e.target.value})} className="w-full bg-neutral-950 border border-neutral-800 p-4 rounded-xl text-white font-black uppercase focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all"/>
                   </div>
-                  <div className="w-32">
-                    <label className="block text-xs font-bold text-cyan-400 uppercase tracking-widest mb-1">Ano</label>
-                    <input type="number" value={clubeEmEdicao.ano} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, ano: Number(e.target.value)})} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded text-yellow-500 font-black text-center focus:border-yellow-500 outline-none transition-colors"/>
+                  <div className="w-full md:w-40">
+                    <label className="block text-[10px] font-black text-cyan-400 uppercase tracking-widest mb-2">Temporada</label>
+                    <input type="number" value={clubeEmEdicao.ano} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, ano: Number(e.target.value)})} className="w-full bg-neutral-950 border border-neutral-800 p-4 rounded-xl text-yellow-500 font-black text-center focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all"/>
                   </div>
                 </div>
 
-                <div className="space-y-2 max-h-150 overflow-y-auto custom-scrollbar pr-2">
-                  {clubeEmEdicao.elenco.map((jogador, index) => (
-                    <div key={jogador.id || index} className="grid grid-cols-12 gap-2 bg-neutral-950 p-3 rounded-lg border border-neutral-800 items-center hover:border-neutral-600 transition-colors">
-                      <div className="col-span-6 md:col-span-5">
-                        <label className="block text-[10px] text-neutral-500 uppercase font-bold mb-1 tracking-widest">Jogador</label>
-                        <input type="text" value={jogador.nome} onChange={(e) => handleEditJogador(jogador.id, 'nome', e.target.value)} className="w-full bg-neutral-900 border border-neutral-800 p-2 rounded text-white text-sm font-bold focus:border-yellow-500 outline-none transition-colors"/>
+                <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4 flex-1">
+                  <div className="grid grid-cols-12 gap-4 px-4 pb-2 text-[10px] text-neutral-500 font-black uppercase tracking-widest border-b border-neutral-800 mb-4">
+                    <div className="col-span-6 md:col-span-5">Atleta</div>
+                    <div className="col-span-3 md:col-span-3">Setor</div>
+                    <div className="col-span-3 md:col-span-2 text-center">OVR</div>
+                  </div>
+                  <div className="space-y-3 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
+                    {clubeEmEdicao.elenco.map((jogador, index) => (
+                      <div key={jogador.id || index} className="grid grid-cols-12 gap-4 bg-neutral-900/50 p-3 rounded-lg border border-neutral-800 items-center hover:border-neutral-700 transition-colors focus-within:border-yellow-500/50">
+                        <div className="col-span-6 md:col-span-5">
+                          <input type="text" value={jogador.nome} onChange={(e) => handleEditJogador(jogador.id, 'nome', e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded-lg text-white text-sm font-bold focus:border-yellow-500 outline-none transition-colors"/>
+                        </div>
+                        <div className="col-span-3 md:col-span-3">
+                          <select value={jogador.posicao} onChange={(e) => handleEditJogador(jogador.id, 'posicao', e.target.value as Posicao)} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded-lg text-cyan-400 text-sm font-black focus:border-yellow-500 outline-none transition-colors cursor-pointer">
+                            <option value="GOL">GOL</option><option value="DEF">DEF</option><option value="MEI">MEI</option><option value="ATA">ATA</option>
+                          </select>
+                        </div>
+                        <div className="col-span-3 md:col-span-2">
+                          <input type="number" value={jogador.overall} onChange={(e) => handleEditJogador(jogador.id, 'overall', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded-lg text-yellow-500 font-black text-center text-sm focus:border-yellow-500 outline-none transition-colors"/>
+                        </div>
+                        <div className="hidden md:flex col-span-2 items-center justify-center gap-3">
+                          <span className={`text-sm ${jogador.statusFisico?.lesionado ? 'text-red-500 drop-shadow-md' : 'text-neutral-700 opacity-20'}`} title="Risco de Lesão">🏥</span>
+                          <span className={`text-sm ${jogador.statusFisico?.suspenso ? 'text-orange-500 drop-shadow-md' : 'text-neutral-700 opacity-20'}`} title="Suspenso">🟥</span>
+                        </div>
                       </div>
-                      <div className="col-span-3 md:col-span-3">
-                        <label className="block text-[10px] text-neutral-500 uppercase font-bold mb-1 tracking-widest">Posição</label>
-                        <select value={jogador.posicao} onChange={(e) => handleEditJogador(jogador.id, 'posicao', e.target.value as Posicao)} className="w-full bg-neutral-900 border border-neutral-800 p-2 rounded text-cyan-400 text-sm font-black focus:border-yellow-500 outline-none transition-colors">
-                          <option value="GOL">GOL</option><option value="DEF">DEF</option><option value="MEI">MEI</option><option value="ATA">ATA</option>
-                        </select>
-                      </div>
-                      <div className="col-span-3 md:col-span-2">
-                        <label className="block text-[10px] text-neutral-500 uppercase font-bold mb-1 tracking-widest">OVR</label>
-                        <input type="number" value={jogador.overall} onChange={(e) => handleEditJogador(jogador.id, 'overall', Number(e.target.value))} className="w-full bg-neutral-900 border border-neutral-800 p-2 rounded text-yellow-500 font-black text-center text-sm focus:border-yellow-500 outline-none transition-colors"/>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
             ) : (
-              <div className="h-full flex flex-col items-center justify-center border-2 border-dashed border-neutral-800 rounded-xl p-10 text-neutral-600 bg-neutral-900/50">
-                <span className="text-6xl mb-4 grayscale opacity-50">⚙️</span>
-                <p className="font-black text-xl uppercase tracking-widest text-neutral-500">Editor de Elenco</p>
-                <p className="text-sm font-bold text-neutral-600 mt-2">Importe um JSON ou clique em "Editar" na lista ao lado.</p>
+              <div className="h-full min-h-[400px] flex flex-col items-center justify-center border-2 border-dashed border-neutral-800 rounded-2xl p-10 text-neutral-600 bg-neutral-900/30">
+                <span className="text-7xl mb-6 grayscale opacity-20">⚙️</span>
+                <p className="font-black text-2xl uppercase tracking-tighter text-neutral-500">Inspetor de Elenco</p>
+                <p className="text-sm font-bold text-neutral-600 mt-2 uppercase tracking-widest">Aguardando importação ou seleção.</p>
               </div>
             )}
           </div>
