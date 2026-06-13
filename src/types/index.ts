@@ -41,7 +41,10 @@ export type GamePhase = 'SETUP' | 'PRE_SEASON' | 'FIRST_HALF' | 'TRANSFER_WINDOW
 export interface GameState {
   phase: GamePhase;
   currentRound: number;
-  draftTurnUid: string | null;      // UID do jogador que está escolhendo agora
-  draftDeadline: number | null;     // Timestamp de quando os 3 minutos acabam
-  playersReady: string[];           // Array com os UIDs de quem já deu "Check" na rodada
+  draftTurnUid: string | null;      
+  draftDeadline: number | null;     
+  draftOrder: string[];             
+  playersReady: string[];           
+  currentPack?: Jogador[];          // O pacote de 9 cartas gerado pelo jogador atual
+  currentPicks?: Jogador[];         // As cartas que ele já clicou
 }

@@ -1,4 +1,3 @@
-// src/App.tsx
 import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { onAuthStateChanged, type User } from "firebase/auth";
@@ -11,14 +10,16 @@ import Draft from "./pages/Draft";
 import Dashboard from "./pages/Dashboard";
 import Championship from "./pages/Championship";
 import Admin from './pages/Admin';
-
-const WaitingRoom = () => <div className="h-screen bg-slate-900 text-emerald-400 font-bold flex flex-col items-center justify-center text-center"><h1 className="text-3xl mb-2">Sala de Espera 🕒</h1><p className="text-slate-400">Aguarde o Game Master iniciar o evento.</p></div>;
+import WaitingRoom from './pages/WaitingRoom';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [gamePhase, setGamePhase] = useState<GamePhase>('SETUP');
 
+  // ==========================================
+  // LÓGICA DE CONEXÃO COM O SERVIDOR
+  // ==========================================
   useEffect(() => {
     // 1. Escuta quem é o usuário logado
     const unsubscribeAuth = onAuthStateChanged(auth, (usuarioAtual) => {
@@ -36,13 +37,27 @@ export default function App() {
     return () => { unsubscribeAuth(); unsubscribeGame(); };
   }, []);
 
-  if (loading) return <div className="h-screen bg-slate-900 flex items-center justify-center text-emerald-400 font-bold">Conectando ao Servidor...</div>;
+  // ==========================================
+  // RENDERIZAÇÃO: TELA DE CARREGAMENTO (FUT PREMIUM)
+  // ==========================================
+  if (loading) {
+    return (
+      <div className="h-screen bg-neutral-950 flex flex-col items-center justify-center font-sans">
+        <div className="w-12 h-12 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-yellow-400 font-black tracking-widest uppercase animate-pulse">
+          Conectando ao Servidor...
+        </p>
+      </div>
+    );
+  }
 
-  // Lógica inteligente de Redirecionamento
+  // ==========================================
+  // LÓGICA DE REDIRECIONAMENTO MULTIPLAYER
+  // ==========================================
   const RenderHome = () => {
     if (!user) return <Login />;
     
-    // Switch case de direcionamento obrigatório baseado no servidor!
+    // Switch case de direcionamento obrigatório baseado na fase do servidor
     switch (gamePhase) {
       case 'SETUP': return <WaitingRoom />;
       case 'PRE_SEASON': return <Navigate to="/draft" />;
@@ -53,19 +68,31 @@ export default function App() {
     }
   };
 
+  // ==========================================
+  // ROTEADOR PRINCIPAL
+  // ==========================================
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<RenderHome />} />
         
-        {/* Proteções de Rota: O usuário só acessa o Draft se a fase for de Draft */}
-        <Route path="/draft" element={user && (gamePhase === 'PRE_SEASON' || gamePhase === 'TRANSFER_WINDOW') ? <Draft /> : <Navigate to="/" />} />
+        {/* Proteções de Rota: O usuário só acessa o Draft se a fase for de Draft/Transferência */}
+        <Route 
+          path="/draft" 
+          element={user && (gamePhase === 'PRE_SEASON' || gamePhase === 'TRANSFER_WINDOW') ? <Draft /> : <Navigate to="/" />} 
+        />
         
-        {/* Proteções de Rota: Só acessa o time se o campeonato estiver rolando */}
-        <Route path="/dashboard" element={user && (gamePhase === 'FIRST_HALF' || gamePhase === 'SECOND_HALF') ? <Dashboard /> : <Navigate to="/" />} />
-        <Route path="/championship" element={user && (gamePhase === 'FIRST_HALF' || gamePhase === 'SECOND_HALF') ? <Championship /> : <Navigate to="/" />} />
+        {/* Proteções de Rota: Só acessa a gestão do time se o campeonato estiver em andamento */}
+        <Route 
+          path="/dashboard" 
+          element={user && (gamePhase === 'FIRST_HALF' || gamePhase === 'SECOND_HALF') ? <Dashboard /> : <Navigate to="/" />} 
+        />
+        <Route 
+          path="/championship" 
+          element={user && (gamePhase === 'FIRST_HALF' || gamePhase === 'SECOND_HALF') ? <Championship /> : <Navigate to="/" />} 
+        />
         
-        {/* Admin fica sempre liberado para testes */}
+        {/* Rota do Game Master (Admin) */}
         <Route path="/admin" element={<Admin />} />
       </Routes>
     </BrowserRouter>
