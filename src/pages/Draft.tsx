@@ -73,11 +73,18 @@ export default function Draft() {
         setGameState(data);
         
         if (!data.currentPack || data.currentPack.length === 0) {
+          // Quando a mesa zera, limpamos apenas o pacote da tela.
           setPacoteAtual([]);
-          setEscolhasDaRodada([]);
-        } else if (data.draftTurnUid !== currentUserUid) {
-          setPacoteAtual(data.currentPack);
-          setEscolhasDaRodada([]);
+        } else {
+          // CORREÇÃO: O servidor tem cartas! Nós garantimos que elas sejam 
+          // exibidas na tela, atualizando o pacote apenas se a tela estiver vazia
+          // ou se for um novo pacote (ex: você apertou 'Rerolar Time').
+          setPacoteAtual(prev => {
+            if (prev.length === 0 || prev[0].id !== data.currentPack![0].id) {
+              return data.currentPack || [];
+            }
+            return prev;
+          });
         }
       }
     });
@@ -256,6 +263,9 @@ export default function Draft() {
   const passarTurnoNoServidor = async (novoElencoMeu: Jogador[]) => {
     if (!gameState || !currentUserUid) return;
 
+    setEscolhasDaRodada([]);
+    setJaRerolou(false);
+
     await setDoc(doc(db, "usuarios", currentUserUid), {
       elenco: novoElencoMeu,
       elencoPronto: novoElencoMeu.length >= 21 
@@ -281,8 +291,6 @@ export default function Draft() {
 
     const proximoUid = gameState.draftOrder![proximoIndex];
 
-    setJaRerolou(false);
-
     await updateDoc(doc(db, "game", "state"), {
       draftTurnUid: proximoUid,
       currentRound: novaRodada,
@@ -290,7 +298,6 @@ export default function Draft() {
       currentPack: [] 
     });
 
-    setPacoteAtual([]); setEscolhasDaRodada([]);
   };
 
   const confirmarRodadaManual = () => {

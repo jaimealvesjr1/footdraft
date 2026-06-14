@@ -102,7 +102,7 @@ export default function WaitingRoom() {
                     </span>
                   )}
                 </div>
-                <span className="text-xs text-cyan-400 font-bold uppercase tracking-wider mt-1">Mister {time.tecnico}</span>
+                <span className="text-xs text-cyan-400 font-bold uppercase tracking-wider mt-1">Técnico {time.tecnico}</span>
               </li>
             );
           })}

@@ -13,6 +13,7 @@ import Dashboard from "./pages/Dashboard";
 import Championship from "./pages/Championship";
 import Admin from './pages/Admin';
 import WaitingRoom from './pages/WaitingRoom';
+import Matches from './pages/Matches'; // <- Adicionamos a importação da página nova aqui
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 
@@ -123,6 +124,7 @@ export default function App() {
             <Route path="/transfer" element={user && isTransferPhase ? <TransferWindow uid={user.uid} /> : <Navigate to="/" />} />
             <Route path="/dashboard" element={user && isPlayingPhase ? <Dashboard /> : <Navigate to="/" />} />
             <Route path="/championship" element={user && isPlayingPhase ? <Championship /> : <Navigate to="/" />} />
+            <Route path="/live" element={user && isPlayingPhase ? <Matches /> : <Navigate to="/" />} />
             <Route path="/admin" element={<AdminProtegido />} />
           </Routes>
         </div>

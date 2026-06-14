@@ -73,7 +73,6 @@ export default function Championship() {
   const isReady = gameState.playersReady?.includes(currentUserUid || '');
   const totalUsers = gameState.teams.filter(t => t.isUser).length;
   
-  // Limita o index da rodada a 21 (para não dar erro no array se o Admin simular a mais por engano)
   const rodadaIndex = Math.min(gameState.currentRound - 1, 21);
   const jogosDaRodada = gameState.schedule[rodadaIndex]?.jogos || [];
   const meuProximoJogo = jogosDaRodada.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
@@ -96,9 +95,15 @@ export default function Championship() {
             RODADA {Math.min(gameState.currentRound || 1, 22)} DE 22
           </p>
         </div>
-        <button onClick={() => navigate('/dashboard')} className="px-6 py-3 bg-neutral-800 hover:bg-neutral-700 text-yellow-400 font-black uppercase tracking-widest rounded-lg transition-colors border border-neutral-700 shadow-lg">
-          ← Voltar ao CT (Vestiário)
-        </button>
+        
+        <div className="flex gap-4">
+          <button onClick={() => navigate('/dashboard')} className="px-6 py-3 bg-neutral-800 hover:bg-neutral-700 text-yellow-400 font-black uppercase tracking-widest rounded-lg transition-colors border border-neutral-700 shadow-lg">
+            ← Voltar ao CT
+          </button>
+          <button onClick={() => navigate('/live')} className="px-6 py-3 bg-cyan-700 hover:bg-cyan-600 text-white font-black uppercase tracking-widest rounded-lg transition-colors border border-cyan-500 shadow-lg shadow-cyan-900/50">
+            📺 Multicast Ao Vivo
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 w-full max-w-7xl mx-auto">
@@ -126,7 +131,7 @@ export default function Championship() {
               </div>
             </div>
 
-            {/* STATUS DO SERVIDOR (O "CHECK") */}
+            {/* STATUS DO SERVIDOR */}
             <div className={`w-full py-4 rounded-xl font-black text-lg uppercase tracking-widest border-2 transition-all
               ${isReady ? 'bg-cyan-900/20 border-cyan-500/50 text-cyan-400' : 'bg-orange-900/20 border-orange-500/50 text-orange-500'}`}>
               {isReady 
@@ -135,42 +140,38 @@ export default function Championship() {
             </div>
           </div>
 
-          {/* ÚLTIMO RESULTADO */}
+          {/* ÚLTIMO RESULTADO (ENXUTO) */}
           {meuUltimoJogo && meuUltimoJogo.homeScore !== null && (
-            <div className="bg-neutral-900 p-8 rounded-xl border border-neutral-800 shadow-xl flex flex-col justify-center">
-              <h3 className="text-yellow-500 font-black mb-6 uppercase text-sm tracking-widest border-b border-neutral-800 pb-2">Resultado da Rodada Anterior</h3>
+            <div className="bg-neutral-900 p-5 rounded-xl border border-neutral-800 shadow-xl">
+              <h3 className="text-yellow-500 font-black mb-4 uppercase text-xs tracking-widest border-b border-neutral-800 pb-2">Resultado da Rodada Anterior</h3>
               
               <div className="animate-fade-in">
-                <div className="flex justify-center items-center gap-6 text-5xl font-black text-white mb-8 bg-neutral-950 py-8 rounded-xl border border-neutral-800 shadow-inner">
-                  <div className="text-right flex-1 text-xl md:text-2xl text-neutral-400 uppercase tracking-tighter">{getNomeClube(meuUltimoJogo.homeId)}</div>
+                <div className="flex justify-center items-center gap-4 text-3xl font-black text-white mb-4 bg-neutral-950 py-4 rounded-xl border border-neutral-800 shadow-inner">
+                  <div className="text-right flex-1 text-lg md:text-xl text-neutral-400 uppercase tracking-tighter truncate">{getNomeClube(meuUltimoJogo.homeId)}</div>
                   <span className={meuUltimoJogo.homeScore > (meuUltimoJogo.awayScore || 0) ? "text-yellow-400" : "text-white"}>{meuUltimoJogo.homeScore}</span>
-                  <span className="text-neutral-700 text-3xl">x</span>
+                  <span className="text-neutral-700 text-xl">x</span>
                   <span className={(meuUltimoJogo.awayScore || 0) > meuUltimoJogo.homeScore ? "text-yellow-400" : "text-white"}>{meuUltimoJogo.awayScore}</span>
-                  <div className="text-left flex-1 text-xl md:text-2xl text-neutral-400 uppercase tracking-tighter">{getNomeClube(meuUltimoJogo.awayId)}</div>
+                  <div className="text-left flex-1 text-lg md:text-xl text-neutral-400 uppercase tracking-tighter truncate">{getNomeClube(meuUltimoJogo.awayId)}</div>
                 </div>
-                <ul className="space-y-4 relative">
+                
+                <div className="overflow-y-auto custom-scrollbar pr-2">
+                  <ul className="space-y-1.5">
                     {meuUltimoJogo.relatorio.length === 0 && (
-                      <li className="text-neutral-500 text-center text-sm font-bold uppercase tracking-widest mt-10">Partida sem eventos de destaque.</li>
+                      <li className="text-neutral-500 text-center text-xs font-bold uppercase tracking-widest mt-4">Partida sem eventos de destaque.</li>
                     )}
                     {meuUltimoJogo.relatorio.map((evento: any, idx: number) => (
-                      <li key={idx} className="flex items-start gap-4 z-10 relative">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center font-black text-[10px] shrink-0 bg-neutral-900 border-2 border-neutral-700 text-white shadow-lg z-10">
-                          {evento.minuto}'
-                        </div>
-                        <div className={`flex-1 p-3 rounded-xl border ${evento.tipo === 'GOL' ? 'bg-yellow-900/20 border-yellow-500/50' : evento.tipo === 'CARTAO_VERMELHO' ? 'bg-red-950/30 border-red-800/50' : evento.tipo === 'LESAO' ? 'bg-orange-950/30 border-orange-800/50' : 'bg-neutral-900 border-neutral-800'}`}>
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="text-[10px] uppercase font-black tracking-widest text-neutral-500">{evento.time}</span>
-                            <span className="text-lg">
-                              {evento.tipo === 'GOL' ? '⚽' : evento.tipo === 'CARTAO_AMARELO' ? '🟨' : evento.tipo === 'CARTAO_VERMELHO' ? '🟥' : '🏥'}
-                            </span>
-                          </div>
-                          <p className={`text-sm font-bold ${evento.tipo === 'GOL' ? 'text-yellow-400' : 'text-neutral-300'}`}>
-                            {evento.texto}
-                          </p>
-                        </div>
+                      <li key={idx} className={`flex items-center gap-3 p-2.5 rounded-lg border ${evento.tipo === 'GOL' ? 'bg-yellow-900/10 border-yellow-500/30' : 'bg-neutral-950/50 border-neutral-800'}`}>
+                        <span className="font-black text-white text-xs w-6 shrink-0">{evento.minuto}'</span>
+                        <span className="text-sm shrink-0">
+                          {evento.tipo === 'GOL' ? '⚽' : evento.tipo === 'CARTAO_AMARELO' ? '🟨' : evento.tipo === 'CARTAO_VERMELHO' ? '🟥' : '🏥'}
+                        </span>
+                        <span className={`text-xs font-bold truncate ${evento.tipo === 'GOL' ? 'text-yellow-400' : 'text-neutral-400'}`}>
+                          {evento.texto}
+                        </span>
                       </li>
                     ))}
                   </ul>
+                </div>
               </div>
             </div>
           )}

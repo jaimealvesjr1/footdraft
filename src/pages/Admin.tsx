@@ -201,30 +201,34 @@ export default function Admin() {
       const homeElenco = homeDoc.data()?.elenco as Jogador[] || [];
       const awayElenco = awayDoc.data()?.elenco as Jogador[] || [];
 
+      // 1. Separamos os Titulares
       const homeTitulares = isHomeUser ? homeElenco.filter(j => homeDoc.data()?.titularesIds?.includes(j.id)) : homeElenco.slice(0, 11);
       const awayTitulares = isAwayUser ? awayElenco.filter(j => awayDoc.data()?.titularesIds?.includes(j.id)) : awayElenco.slice(0, 11);
 
-      const resultado = simularPartida(homeTitulares, awayTitulares);
+      // 2. Separamos os Reservas (Quem NÃO está na lista de titulares)
+      const homeBanco = isHomeUser ? homeElenco.filter(j => !homeDoc.data()?.titularesIds?.includes(j.id)) : homeElenco.slice(11);
+      const awayBanco = isAwayUser ? awayElenco.filter(j => !awayDoc.data()?.titularesIds?.includes(j.id)) : awayElenco.slice(11);
+
+      // 3. Enviamos os 4 grupos para o motor (O motor agora cura e devolve o time fundido e pronto)
+      const resultado = simularPartida(homeTitulares, awayTitulares, homeBanco, awayBanco);
       jogo.homeScore = resultado.golsCasa;
       jogo.awayScore = resultado.golsFora;
       jogo.relatorio = resultado.relatorio;
 
-      // ATENÇÃO: Se for a rodada 11, reseta o cansaço para o returno. Se não, subtrai -2.
-      const resetarCansaco = gameState.currentRound === 11;
-      
-      const mergeRoster = (elencoInteiro: Jogador[], titularesCansados: Jogador[]) => {
-        return elencoInteiro.map(j => {
-          const jogou = titularesCansados.find(s => s.id === j.id);
-          if (jogou) return jogou; 
-          let status = { ...(j.statusFisico || { cansaco: 1, lesionado: false, suspenso: false }) };
-          status.cansaco = resetarCansaco ? 1 : Math.max(1, status.cansaco - 2);
-          status.suspenso = false; 
-          return { ...j, statusFisico: status };
-        });
-      };
+      // 4. Recebemos o elenco inteiro (Titulares desgastados + Banco curado)
+      let finalHomeRoster = resultado.homeTeamUpdated;
+      let finalAwayRoster = resultado.awayTeamUpdated;
 
-      await updateDoc(doc(db, isHomeUser ? "usuarios" : "clubes", jogo.homeId), { elenco: mergeRoster(homeElenco, resultado.homeTeamUpdated) });
-      await updateDoc(doc(db, isAwayUser ? "usuarios" : "clubes", jogo.awayId), { elenco: mergeRoster(awayElenco, resultado.awayTeamUpdated) });
+      // 5. Aplicamos apenas o Super Descanso do fim do 1º turno
+      const resetarCansaco = gameState.currentRound === 11;
+      if (resetarCansaco) {
+        finalHomeRoster = finalHomeRoster.map(j => ({ ...j, statusFisico: { ...j.statusFisico, cansaco: 1 } }));
+        finalAwayRoster = finalAwayRoster.map(j => ({ ...j, statusFisico: { ...j.statusFisico, cansaco: 1 } }));
+      }
+
+      // 6. Salvamos direto no banco, sem precisar mais do mergeRoster
+      await updateDoc(doc(db, isHomeUser ? "usuarios" : "clubes", jogo.homeId), { elenco: finalHomeRoster });
+      await updateDoc(doc(db, isAwayUser ? "usuarios" : "clubes", jogo.awayId), { elenco: finalAwayRoster });
 
       const updateStanding = (id: string, gf: number, gc: number) => {
         let t = novosStandings.find(s => s.id === id);
@@ -391,7 +395,7 @@ export default function Admin() {
               {erroJson && <p className="text-orange-500 text-xs mt-3 font-bold bg-orange-950/30 p-2 rounded">{erroJson}</p>}
             </div>
 
-            <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-xl max-h-[500px] overflow-y-auto custom-scrollbar">
+            <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-xl max-h-125 overflow-y-auto custom-scrollbar">
               <h2 className="font-black text-lg text-white mb-4 uppercase tracking-widest flex items-center justify-between">
                 Banco de Clubes <span className="bg-neutral-800 text-neutral-400 text-xs py-1 px-3 rounded-full">{clubesSalvos.length}</span>
               </h2>
@@ -443,7 +447,7 @@ export default function Admin() {
                     <div className="col-span-3 md:col-span-3">Setor</div>
                     <div className="col-span-3 md:col-span-2 text-center">OVR</div>
                   </div>
-                  <div className="space-y-3 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
+                  <div className="space-y-3 max-h-125 overflow-y-auto custom-scrollbar pr-2">
                     {clubeEmEdicao.elenco.map((jogador, index) => (
                       <div key={jogador.id || index} className="grid grid-cols-12 gap-4 bg-neutral-900/50 p-3 rounded-lg border border-neutral-800 items-center hover:border-neutral-700 transition-colors focus-within:border-yellow-500/50">
                         <div className="col-span-6 md:col-span-5">
@@ -467,7 +471,7 @@ export default function Admin() {
                 </div>
               </div>
             ) : (
-              <div className="h-full min-h-[400px] flex flex-col items-center justify-center border-2 border-dashed border-neutral-800 rounded-2xl p-10 text-neutral-600 bg-neutral-900/30">
+              <div className="h-full min-h-100 flex flex-col items-center justify-center border-2 border-dashed border-neutral-800 rounded-2xl p-10 text-neutral-600 bg-neutral-900/30">
                 <span className="text-7xl mb-6 grayscale opacity-20">⚙️</span>
                 <p className="font-black text-2xl uppercase tracking-tighter text-neutral-500">Inspetor de Elenco</p>
                 <p className="text-sm font-bold text-neutral-600 mt-2 uppercase tracking-widest">Aguardando importação ou seleção.</p>

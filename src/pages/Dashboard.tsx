@@ -13,6 +13,14 @@ const REGRAS_FORMACAO: Record<Formacao, { DEF: number; MEI: number; ATA: number 
   "4-5-1": { DEF: 4, MEI: 5, ATA: 1 },
 };
 
+// 1. NOVA REGRA: Define quem pode jogar improvisado em qual vaga
+const POSICOES_PERMITIDAS: Record<string, string[]> = {
+  "GOL": ["GOL", "DEF"],
+  "DEF": ["DEF", "GOL", "MEI"],
+  "MEI": ["MEI", "DEF", "ATA"],
+  "ATA": ["ATA", "MEI"]
+};
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [elenco, setElenco] = useState<Jogador[]>([]);
@@ -34,11 +42,10 @@ export default function Dashboard() {
         if (docSnap.exists()) {
           const dados = docSnap.data();
           
-          // VACINA ANTI-CLONE: Destrói qualquer duplicata que tenha vindo de bugs antigos do Draft
           const elencoBruto = dados.elenco || [];
           const elencoUnico = Array.from(new Map(elencoBruto.map((j: Jogador) => [j.id, j])).values()) as Jogador[];
           
-          setElenco(elencoUnico); // Carrega apenas jogadores únicos
+          setElenco(elencoUnico); 
           setNomeTime(dados.nomeTime || "Time Desconhecido");
           setNomeTecnico(dados.nomeTecnico || "Técnico");
           
@@ -72,7 +79,7 @@ export default function Dashboard() {
 
   const abrirModal = (posicao: string, index: number, idAtual: string | null = null) => {
     setPosicaoModal(posicao); 
-    setSlotIndex(index); // Agora o slotIndex é definido aqui
+    setSlotIndex(index); 
     setJogadorSendoSubstituido(idAtual); 
     setModalAberto(true);
   };
@@ -81,8 +88,6 @@ export default function Dashboard() {
     if (slotIndex === null) return;
     
     const novaLista = [...titularesIds];
-    
-    // PROTEÇÃO: Se o jogador já está no campo, tira ele da vaga antiga (faz um SWAP/Troca)
     const slotOcupado = novaLista.indexOf(idNovo);
     if (slotOcupado !== -1) {
       novaLista[slotOcupado] = null;
@@ -101,57 +106,57 @@ export default function Dashboard() {
     return (
       <div className="flex justify-center gap-2 sm:gap-4 w-full mb-4 z-10 relative">
         {Array.from({ length: quantidade }).map((_, i) => {
-          const slotIndex = offset + i; // O índice exato de 0 a 10
+          const slotIndex = offset + i; 
           const jogadorId = titularesIds[slotIndex];
           const jogador = elenco.find(j => j.id === jogadorId);
+          
+          // 2. CÁLCULO DE PENALIDADE VISUAL NO CAMPO
+          const isImprovisado = jogador && jogador.posicao !== posicao;
+          // Se estiver improvisado, perde 15% do overall na exibição
+          const overallExibido = jogador ? (isImprovisado ? Math.floor(jogador.overall * 0.85) : jogador.overall) : 0;
           
           return (
             <div 
               key={slotIndex} 
               onClick={() => abrirModal(posicao, slotIndex, jogador?.id || null)}
-              // O container base da carta com animação de flutuação no hover
               className="relative w-16 h-24 sm:w-24 sm:h-36 cursor-pointer transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_15px_30px_rgba(0,0,0,0.6)] group"
             >
               {jogador ? (
-                /* --- CARTA DE JOGADOR PREENCHIDA --- */
                 <div className={`w-full h-full flex flex-col justify-between p-1.5 sm:p-2 rounded-t-sm rounded-b-xl border-2 shadow-xl overflow-hidden
-                  ${jogador.overall >= 88 
+                  ${overallExibido >= 88 
                     ? 'bg-linear-to-b from-yellow-200 via-yellow-600 to-neutral-950 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)]' 
                     : 'bg-linear-to-b from-neutral-200 via-neutral-500 to-neutral-950 border-neutral-400 shadow-lg'
                   }`}
                 >
-                  {/* Topo da Carta: OVR e Posição */}
                   <div className="flex flex-col items-start leading-none z-10">
-                    <span className={`text-sm sm:text-xl font-black tracking-tighter ${jogador.overall >= 88 ? 'text-yellow-950' : 'text-neutral-900'}`}>
-                      {jogador.overall}
+                    <span className={`text-sm sm:text-xl font-black tracking-tighter ${overallExibido >= 88 ? 'text-yellow-950' : 'text-neutral-900'}`}>
+                      {overallExibido}
                     </span>
-                    <span className={`text-[8px] sm:text-[10px] font-black uppercase ${jogador.overall >= 88 ? 'text-yellow-900' : 'text-neutral-800'}`}>
-                      {jogador.posicao}
+                    <span className={`text-[8px] sm:text-[10px] font-black uppercase ${overallExibido >= 88 ? 'text-yellow-900' : 'text-neutral-800'}`}>
+                      {/* Mostra a posição original dele se estiver improvisado */}
+                      {isImprovisado ? `IMP (${jogador.posicao})` : jogador.posicao}
                     </span>
                   </div>
 
-                  {/* Fundo da Carta: Nome e Ícones */}
                   <div className="flex flex-col items-center w-full mt-auto z-10">
-                    {/* Linha divisória charmosa */}
-                    <div className={`w-full h-px mb-1 opacity-40 ${jogador.overall >= 88 ? 'bg-yellow-950' : 'bg-black'}`}></div>
+                    <div className={`w-full h-px mb-1 opacity-40 ${overallExibido >= 88 ? 'bg-yellow-950' : 'bg-black'}`}></div>
                     
-                    <span className={`text-[9px] sm:text-xs font-black truncate w-full text-center tracking-tight leading-none pb-0.5 ${jogador.overall >= 88 ? 'text-yellow-100' : 'text-white'}`}>
+                    <span className={`text-[9px] sm:text-xs font-black truncate w-full text-center tracking-tight leading-none pb-0.5 ${overallExibido >= 88 ? 'text-yellow-100' : 'text-white'}`}>
                       {jogador.nome}
                     </span>
                     
-                    {/* Ícones de Status Físico */}
                     <div className="flex gap-1 mt-1">
-                      {(jogador.statusFisico?.cansaco ?? 0) > 50 && <span className="text-[10px] drop-shadow-md">🔋</span>}
+                      {(jogador.statusFisico?.cansaco ?? 0) > 50 && <span className="text-[10px] drop-shadow-md" title="Cansado">🔋</span>}
                       {jogador.statusFisico?.lesionado && <span className="text-[10px] drop-shadow-md">🏥</span>}
                       {jogador.statusFisico?.suspenso && <span className="text-[10px] drop-shadow-md">🟥</span>}
+                      {/* Ícone de alerta para improvisação */}
+                      {isImprovisado && <span className="text-[10px] drop-shadow-md text-red-600" title="Improvisado (-15% OVR)">⚠️</span>}
                     </div>
                   </div>
 
-                  {/* Efeito de brilho no fundo da carta */}
                   <div className="absolute top-0 left-0 w-full h-1/2 bg-linear-to-b from-white/30 to-transparent opacity-50 pointer-events-none"></div>
                 </div>
               ) : (
-                /* --- SLOT VAZIO (Aguardando Jogador) --- */
                 <div className="w-full h-full bg-black/40 border-2 border-dashed border-white/20 rounded-t-sm rounded-b-xl flex flex-col items-center justify-center transition-colors group-hover:border-yellow-500/50 group-hover:bg-black/60">
                   <span className="text-white/20 text-xl sm:text-3xl font-black group-hover:text-yellow-500/50 transition-colors">+</span>
                   <span className="text-[8px] sm:text-[10px] text-white/30 font-bold uppercase mt-1 group-hover:text-yellow-500/50 transition-colors">
@@ -168,11 +173,14 @@ export default function Dashboard() {
 
   if (carregando) return <div className="h-screen bg-neutral-950 flex items-center justify-center text-yellow-400 font-bold uppercase tracking-widest animate-pulse">Carregando Vestiário...</div>;
 
+  // 3. PREPARAÇÃO DOS JOGADORES PARA O MODAL
+  const posicoesAceitas = POSICOES_PERMITIDAS[posicaoModal] || [posicaoModal];
+  const jogadoresParaModal = reservas.filter(j => posicoesAceitas.includes(j.posicao));
+
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-200 p-4 md:p-8 flex flex-col font-sans">
       <div className="max-w-5xl mx-auto w-full">
         
-        {/* Header de Controle */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-6 bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-2xl">
           <div>
             <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter">{nomeTime}</h1>
@@ -191,7 +199,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* O CAMPO DE FUTEBOL VISUAL (Gramado Escuro Premium) */}
         <div className="relative w-full max-w-3xl mx-auto min-h-150 md:min-h-187.5 bg-linear-to-b from-[#0a2e1c] to-[#041a0e] rounded-xl border-4 border-white/10 overflow-hidden flex flex-col justify-evenly py-6 sm:py-8 shadow-2xl">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-24 border-b-4 border-x-4 border-white/20 rounded-b-xl"></div>
           <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-24 border-t-4 border-x-4 border-white/20 rounded-t-xl"></div>
@@ -205,7 +212,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* POPUP (MODAL) DE ESCOLHA DE JOGADORES */}
       {modalAberto && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
           <div className="bg-neutral-900 border border-neutral-700 rounded-xl w-full max-w-md p-6 shadow-2xl max-h-[80vh] flex flex-col">
@@ -215,11 +221,15 @@ export default function Dashboard() {
             </div>
             
             <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-              {reservas.filter(j => j.posicao === posicaoModal).length === 0 && (
-                <p className="text-neutral-500 text-center py-8 text-sm font-bold uppercase tracking-widest">Nenhum {posicaoModal} disponível.</p>
+              {jogadoresParaModal.length === 0 && (
+                <p className="text-neutral-500 text-center py-8 text-sm font-bold uppercase tracking-widest">Nenhum jogador disponível para improvisar nesta vaga.</p>
               )}
-              {reservas.filter(j => j.posicao === posicaoModal).map(j => {
+              {jogadoresParaModal.map(j => {
                 const isBloqueado = j.statusFisico?.lesionado || j.statusFisico?.suspenso;
+                
+                // 4. PENALIDADE MOSTRADA NO MODAL
+                const isImprovisadoModal = j.posicao !== posicaoModal;
+                const overallPenalizado = isImprovisadoModal ? Math.floor(j.overall * 0.85) : j.overall;
 
                 return (
                   <button 
@@ -230,16 +240,21 @@ export default function Dashboard() {
                       ${isBloqueado ? 'bg-neutral-950 border-neutral-800 opacity-50 cursor-not-allowed grayscale' : 'bg-neutral-800 border-neutral-700 hover:border-yellow-500 cursor-pointer'}
                     `}
                   >
-                    {!isBloqueado && <div className={`absolute top-0 left-0 w-1 h-full ${j.overall >= 88 ? 'bg-yellow-500' : 'bg-neutral-500'}`}></div>}
+                    {!isBloqueado && <div className={`absolute top-0 left-0 w-1 h-full ${overallPenalizado >= 88 ? 'bg-yellow-500' : 'bg-neutral-500'}`}></div>}
                     <div className="pl-2">
                       <p className="font-black text-neutral-200">{j.nome}</p>
-                      <p className="text-[10px] text-neutral-400 font-bold uppercase mt-1">{j.clubeHistorico}</p>
+                      <p className="text-[10px] text-neutral-400 font-bold uppercase mt-1 flex items-center gap-2">
+                        {j.clubeHistorico} 
+                        {isImprovisadoModal && <span className="text-red-400 font-black">⚠️ Improvisado ({j.posicao})</span>}
+                      </p>
                       
                       {isBloqueado && (
                         <p className="text-xs text-orange-500 font-bold mt-1">INAPTO PARA JOGAR (Lesão/Cartão)</p>
                       )}
                     </div>
-                    <span className={`text-sm px-3 py-2 rounded font-black border ${j.overall >= 88 ? 'bg-yellow-900/50 text-yellow-500 border-yellow-700/50' : 'bg-neutral-900 text-white border-neutral-700'}`}>{j.overall}</span>
+                    <span className={`text-sm px-3 py-2 rounded font-black border ${overallPenalizado >= 88 ? 'bg-yellow-900/50 text-yellow-500 border-yellow-700/50' : 'bg-neutral-900 text-white border-neutral-700'}`}>
+                      {overallPenalizado}
+                    </span>
                   </button>
                 );
               })}

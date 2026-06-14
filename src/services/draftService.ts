@@ -1,4 +1,3 @@
-// Define o que é um Jogador no universo do FootDraft
 export interface Jogador {
   id: string;
   nome: string;

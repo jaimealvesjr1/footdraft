@@ -15,9 +15,6 @@ export default function Footer() {
           <p className="text-[11px] text-neutral-500 font-bold uppercase tracking-widest">
             &copy; {new Date().getFullYear()} FootDraft. Todos os direitos reservados.
           </p>
-          <p className="text-[10px] text-cyan-400 font-black uppercase tracking-widest mt-1">
-            Desenvolvido pra galera da B2X
-          </p>
         </div>
       </div>
     </footer>
