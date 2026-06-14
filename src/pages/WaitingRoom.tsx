@@ -76,7 +76,7 @@ export default function WaitingRoom() {
             <div className="w-16 h-16 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
             <h1 className="text-2xl font-black text-white mb-2 uppercase tracking-tight">Clube {nomeTime}</h1>
             <p className="text-neutral-400 text-sm font-bold bg-neutral-950 p-2 rounded border border-neutral-800">Registrado com Sucesso!</p>
-            <p className="text-neutral-500 text-xs mt-6 uppercase tracking-widest">Aguarde o Game Master organizar o sorteio e iniciar a Pré-Temporada...</p>
+            <p className="text-neutral-500 text-xs mt-6 uppercase tracking-widest">Aguarde a CBF organizar o sorteio e iniciar a Pré-Temporada...</p>
           </div>
         )}
       </div>

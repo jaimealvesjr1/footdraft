@@ -13,7 +13,6 @@ const REGRAS_FORMACAO: Record<Formacao, { DEF: number; MEI: number; ATA: number 
   "4-5-1": { DEF: 4, MEI: 5, ATA: 1 },
 };
 
-// 1. NOVA REGRA: Define quem pode jogar improvisado em qual vaga
 const POSICOES_PERMITIDAS: Record<string, string[]> = {
   "GOL": ["GOL", "DEF"],
   "DEF": ["DEF", "GOL", "MEI"],
@@ -28,6 +27,7 @@ export default function Dashboard() {
   const [formacao, setFormacao] = useState<Formacao>("4-3-3");
   const [nomeTime, setNomeTime] = useState("");
   const [nomeTecnico, setNomeTecnico] = useState("");
+  const [xpTotal, setXpTotal] = useState(0); 
   const [carregando, setCarregando] = useState(true);
 
   const [modalAberto, setModalAberto] = useState(false);
@@ -48,12 +48,13 @@ export default function Dashboard() {
           setElenco(elencoUnico); 
           setNomeTime(dados.nomeTime || "Time Desconhecido");
           setNomeTecnico(dados.nomeTecnico || "Técnico");
+          setXpTotal(dados.xpTotal || 0); 
           
           const formacaoDB = dados.formacao as Formacao;
           setFormacao(REGRAS_FORMACAO[formacaoDB] ? formacaoDB : "4-3-3");
           
-          const titularesDB = dados.titularesIds;
-          setTitularesIds(Array.isArray(titularesDB) && titularesDB.length === 11 ? titularesDB : Array(11).fill(null));
+          const titularsDB = dados.titularesIds;
+          setTitularesIds(Array.isArray(titularsDB) && titularsDB.length === 11 ? titularsDB : Array(11).fill(null));
         }
         setCarregando(false);
       } else navigate("/");
@@ -65,34 +66,39 @@ export default function Dashboard() {
   const regraAtual = REGRAS_FORMACAO[formacao] || REGRAS_FORMACAO["4-3-3"];
   const isValido = titularesIds.every(id => id !== null);
 
+  // 🚨 CORREÇÃO: Todos os Hooks (useMemo) precisam ficar ANTES do if (carregando) return...
+  const posicoesAceitas = POSICOES_PERMITIDAS[posicaoModal] || [posicaoModal];
+  
+  const jogadoresParaModal = useMemo(() => {
+    const filtrados = reservas.filter(j => posicoesAceitas.includes(j.posicao));
+    
+    return [...filtrados].sort((a, b) => {
+      const aNativo = a.posicao === posicaoModal ? 1 : 0;
+      const bNativo = b.posicao === posicaoModal ? 1 : 0;
+      
+      if (aNativo !== bNativo) {
+        return bNativo - aNativo; 
+      }
+      return b.overall - a.overall;
+    });
+  }, [reservas, posicoesAceitas, posicaoModal]);
+
   const salvarEscalacao = async () => {
     if (!isValido || !auth.currentUser) return;
-    
     await updateDoc(doc(db, "usuarios", auth.currentUser.uid), { titularesIds, formacao });
-    
-    await updateDoc(doc(db, "game", "state"), { 
-      playersReady: arrayUnion(auth.currentUser.uid) 
-    });
-    
+    await updateDoc(doc(db, "game", "state"), { playersReady: arrayUnion(auth.currentUser.uid) });
     navigate('/championship'); 
   };
 
   const abrirModal = (posicao: string, index: number, idAtual: string | null = null) => {
-    setPosicaoModal(posicao); 
-    setSlotIndex(index); 
-    setJogadorSendoSubstituido(idAtual); 
-    setModalAberto(true);
+    setPosicaoModal(posicao); setSlotIndex(index); setJogadorSendoSubstituido(idAtual); setModalAberto(true);
   };
 
   const confirmarTroca = (idNovo: string) => {
     if (slotIndex === null) return;
-    
     const novaLista = [...titularesIds];
     const slotOcupado = novaLista.indexOf(idNovo);
-    if (slotOcupado !== -1) {
-      novaLista[slotOcupado] = null;
-    }
-    
+    if (slotOcupado !== -1) novaLista[slotOcupado] = null;
     novaLista[slotIndex] = idNovo; 
     setTitularesIds(novaLista); 
     setModalAberto(false);
@@ -102,66 +108,83 @@ export default function Dashboard() {
     setTitularesIds(prev => prev.filter(tid => tid !== id)); setModalAberto(false);
   };
 
+  const calcularForcaSetor = (posicaoAlvo: string, offset: number, quantidade: number) => {
+    let soma = 0;
+    let validos = 0;
+    
+    for (let i = 0; i < quantidade; i++) {
+      const jogadorId = titularesIds[offset + i];
+      const jogador = elenco.find(j => j.id === jogadorId);
+      if (jogador) {
+        const isImprovisado = jogador.posicao !== posicaoAlvo;
+        const penalidadeFadiga = [1, 0.9, 0.8, 0.7, 0.5];
+        const nivelFadiga = Math.max(1, Math.min(5, jogador.statusFisico?.cansaco || 1)) - 1;
+        
+        let ovrReal = isImprovisado ? (jogador.overall * 0.85) : jogador.overall;
+        ovrReal *= penalidadeFadiga[nivelFadiga];
+        
+        if (jogador.statusFisico?.lesionado || jogador.statusFisico?.suspenso) ovrReal = 0;
+        
+        soma += ovrReal;
+        validos++;
+      }
+    }
+    return validos > 0 ? Math.round(soma / validos) : 0;
+  };
+
+  const ovrAtaque = calcularForcaSetor('ATA', 0, regraAtual.ATA);
+  const ovrMeio = calcularForcaSetor('MEI', regraAtual.ATA, regraAtual.MEI);
+  const ovrDefesa = Math.round((calcularForcaSetor('DEF', regraAtual.ATA + regraAtual.MEI, regraAtual.DEF) * 0.8) + (calcularForcaSetor('GOL', 10, 1) * 0.2));
+  const ovrGeral = Math.round((ovrAtaque + ovrMeio + ovrDefesa) / (isValido ? 3 : 1));
+
+  const renderEnergia = (cansacoLevel: number) => {
+    const fadiga = Math.max(1, Math.min(5, cansacoLevel || 1));
+    const energia = 6 - fadiga; 
+    const cor = energia >= 4 ? 'bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.5)]' : energia === 3 ? 'bg-yellow-400 shadow-[0_0_5px_rgba(250,204,21,0.5)]' : 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.5)]';
+    return (
+      <div className="flex gap-0.5 items-center" title={`Fadiga: ${fadiga}/5 (Energia: ${energia}/5)`}>
+        {[1, 2, 3, 4, 5].map(i => <div key={i} className={`w-1.5 h-2.5 rounded-[1px] ${i <= energia ? cor : 'bg-neutral-900 border border-neutral-700/50'}`}></div>)}
+      </div>
+    );
+  };
+
   const renderLinhaCampo = (posicao: string, quantidade: number, offset: number) => {
     return (
       <div className="flex justify-center gap-2 sm:gap-4 w-full mb-4 z-10 relative">
         {Array.from({ length: quantidade }).map((_, i) => {
-          const slotIndex = offset + i; 
-          const jogadorId = titularesIds[slotIndex];
+          const slotOcupado = offset + i; 
+          const jogadorId = titularesIds[slotOcupado];
           const jogador = elenco.find(j => j.id === jogadorId);
           
-          // 2. CÁLCULO DE PENALIDADE VISUAL NO CAMPO
           const isImprovisado = jogador && jogador.posicao !== posicao;
-          // Se estiver improvisado, perde 15% do overall na exibição
           const overallExibido = jogador ? (isImprovisado ? Math.floor(jogador.overall * 0.85) : jogador.overall) : 0;
           
           return (
-            <div 
-              key={slotIndex} 
-              onClick={() => abrirModal(posicao, slotIndex, jogador?.id || null)}
-              className="relative w-16 h-24 sm:w-24 sm:h-36 cursor-pointer transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_15px_30px_rgba(0,0,0,0.6)] group"
-            >
+            <div key={slotOcupado} onClick={() => abrirModal(posicao, slotOcupado, jogador?.id || null)} className="relative w-16 h-24 sm:w-24 sm:h-37.5 cursor-pointer transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_15px_30px_rgba(0,0,0,0.6)] group">
               {jogador ? (
-                <div className={`w-full h-full flex flex-col justify-between p-1.5 sm:p-2 rounded-t-sm rounded-b-xl border-2 shadow-xl overflow-hidden
-                  ${overallExibido >= 88 
-                    ? 'bg-linear-to-b from-yellow-200 via-yellow-600 to-neutral-950 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)]' 
-                    : 'bg-linear-to-b from-neutral-200 via-neutral-500 to-neutral-950 border-neutral-400 shadow-lg'
-                  }`}
-                >
+                <div className={`w-full h-full flex flex-col justify-between p-1.5 sm:p-2 rounded-t-sm rounded-b-xl border-2 shadow-xl overflow-hidden ${overallExibido >= 88 ? 'bg-linear-to-b from-yellow-200 via-yellow-600 to-neutral-950 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)]' : 'bg-linear-to-b from-neutral-200 via-neutral-500 to-neutral-950 border-neutral-400 shadow-lg'}`}>
                   <div className="flex flex-col items-start leading-none z-10">
-                    <span className={`text-sm sm:text-xl font-black tracking-tighter ${overallExibido >= 88 ? 'text-yellow-950' : 'text-neutral-900'}`}>
-                      {overallExibido}
-                    </span>
-                    <span className={`text-[8px] sm:text-[10px] font-black uppercase ${overallExibido >= 88 ? 'text-yellow-900' : 'text-neutral-800'}`}>
-                      {/* Mostra a posição original dele se estiver improvisado */}
+                    <span className={`text-sm sm:text-xl font-black tracking-tighter ${overallExibido >= 88 ? 'text-yellow-950' : 'text-white'}`}>{overallExibido}</span>
+                    <span className={`text-[8px] sm:text-[10px] font-black uppercase ${overallExibido >= 88 ? 'text-yellow-900' : 'text-neutral-400'}`}>
                       {isImprovisado ? `IMP (${jogador.posicao})` : jogador.posicao}
                     </span>
                   </div>
-
                   <div className="flex flex-col items-center w-full mt-auto z-10">
                     <div className={`w-full h-px mb-1 opacity-40 ${overallExibido >= 88 ? 'bg-yellow-950' : 'bg-black'}`}></div>
-                    
-                    <span className={`text-[9px] sm:text-xs font-black truncate w-full text-center tracking-tight leading-none pb-0.5 ${overallExibido >= 88 ? 'text-yellow-100' : 'text-white'}`}>
-                      {jogador.nome}
-                    </span>
-                    
-                    <div className="flex gap-1 mt-1">
-                      {(jogador.statusFisico?.cansaco ?? 0) > 50 && <span className="text-[10px] drop-shadow-md" title="Cansado">🔋</span>}
+                    <span className={`text-[9px] sm:text-xs font-black truncate w-full text-center tracking-tight leading-none pb-1 ${overallExibido >= 88 ? 'text-yellow-100' : 'text-white'}`}>{jogador.nome}</span>
+                    <div className="flex items-center justify-center gap-1.5 mt-0.5 w-full">
+                      {renderEnergia(jogador.statusFisico?.cansaco ?? 1)}
                       {jogador.statusFisico?.lesionado && <span className="text-[10px] drop-shadow-md">🏥</span>}
                       {jogador.statusFisico?.suspenso && <span className="text-[10px] drop-shadow-md">🟥</span>}
-                      {/* Ícone de alerta para improvisação */}
                       {isImprovisado && <span className="text-[10px] drop-shadow-md text-red-600" title="Improvisado (-15% OVR)">⚠️</span>}
                     </div>
                   </div>
-
                   <div className="absolute top-0 left-0 w-full h-1/2 bg-linear-to-b from-white/30 to-transparent opacity-50 pointer-events-none"></div>
                 </div>
               ) : (
                 <div className="w-full h-full bg-black/40 border-2 border-dashed border-white/20 rounded-t-sm rounded-b-xl flex flex-col items-center justify-center transition-colors group-hover:border-yellow-500/50 group-hover:bg-black/60">
                   <span className="text-white/20 text-xl sm:text-3xl font-black group-hover:text-yellow-500/50 transition-colors">+</span>
-                  <span className="text-[8px] sm:text-[10px] text-white/30 font-bold uppercase mt-1 group-hover:text-yellow-500/50 transition-colors">
-                    {posicao}
-                  </span>
+                  <span className="text-[8px] sm:text-[10px] text-white/30 font-bold uppercase mt-1 group-hover:text-yellow-500/50 transition-colors">{posicao}</span>
                 </div>
               )}
             </div>
@@ -171,44 +194,113 @@ export default function Dashboard() {
     );
   };
 
+  // 🚨 O RETURN ANTECIPADO FICA ABAIXO DE TODOS OS HOOKS
   if (carregando) return <div className="h-screen bg-neutral-950 flex items-center justify-center text-yellow-400 font-bold uppercase tracking-widest animate-pulse">Carregando Vestiário...</div>;
 
-  // 3. PREPARAÇÃO DOS JOGADORES PARA O MODAL
-  const posicoesAceitas = POSICOES_PERMITIDAS[posicaoModal] || [posicaoModal];
-  const jogadoresParaModal = reservas.filter(j => posicoesAceitas.includes(j.posicao));
+  const nivelTecnico = Math.floor(xpTotal / 100) + 1;
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-200 p-4 md:p-8 flex flex-col font-sans">
-      <div className="max-w-5xl mx-auto w-full">
+      <div className="max-w-7xl mx-auto w-full space-y-6">
         
-        <div className="flex flex-col md:flex-row justify-between items-center mb-6 bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-2xl">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter">{nomeTime}</h1>
-            <p className="text-cyan-400 font-bold uppercase tracking-widest text-xs mt-1">Técnico {nomeTecnico}</p>
+        <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-2xl">
+          <div className="flex items-center gap-6">
+            <div className="w-16 h-16 bg-neutral-950 border-2 border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.3)]">
+              <span className="text-2xl font-black text-cyan-400">{nivelTecnico}</span>
+            </div>
+            <div>
+              <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter">{nomeTime}</h1>
+              <p className="text-cyan-400 font-bold uppercase tracking-widest text-xs mt-1">Técnico: {nomeTecnico} • <span className="text-yellow-500">{xpTotal} XP</span></p>
+            </div>
           </div>
-          <div className="flex gap-4 mt-4 md:mt-0 items-center">
-            <select value={formacao} onChange={(e) => { setFormacao(e.target.value as Formacao); setTitularesIds(Array(11).fill(null)); }} className="bg-neutral-950 text-white p-3 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-yellow-500">
+          <div className="flex gap-4 mt-4 md:mt-0 items-center w-full md:w-auto">
+            <select value={formacao} onChange={(e) => { setFormacao(e.target.value as Formacao); setTitularesIds(Array(11).fill(null)); }} className="flex-1 md:flex-none bg-neutral-950 text-white p-4 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-yellow-500">
               <option value="4-3-3">Tática 4-3-3</option>
               <option value="4-4-2">Tática 4-4-2</option>
               <option value="3-5-2">Tática 3-5-2</option>
               <option value="4-5-1">Tática 4-5-1</option>
             </select>
-            <button onClick={salvarEscalacao} disabled={!isValido} className={`px-8 py-3 rounded-lg font-black uppercase tracking-widest transition-all ${isValido ? 'bg-yellow-500 text-neutral-950 hover:bg-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)]' : 'bg-neutral-800 text-neutral-600 cursor-not-allowed'}`}>
+            <button onClick={salvarEscalacao} disabled={!isValido} className={`flex-1 md:flex-none px-8 py-4 rounded-lg font-black uppercase tracking-widest transition-all ${isValido ? 'bg-yellow-500 text-neutral-950 hover:bg-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)]' : 'bg-neutral-800 text-neutral-600 cursor-not-allowed'}`}>
               IR PARA O JOGO
             </button>
           </div>
         </div>
 
-        <div className="relative w-full max-w-3xl mx-auto min-h-150 md:min-h-187.5 bg-linear-to-b from-[#0a2e1c] to-[#041a0e] rounded-xl border-4 border-white/10 overflow-hidden flex flex-col justify-evenly py-6 sm:py-8 shadow-2xl">
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-24 border-b-4 border-x-4 border-white/20 rounded-b-xl"></div>
-          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-24 border-t-4 border-x-4 border-white/20 rounded-t-xl"></div>
-          <div className="absolute top-1/2 left-0 w-full border-t-4 border-white/20"></div>
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border-4 border-white/20 rounded-full"></div>
+        <div className="flex flex-col xl:flex-row gap-6">
+          <div className="w-full xl:w-72 flex flex-col gap-4">
+            <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-xl">
+              <h3 className="text-neutral-500 font-black uppercase tracking-widest text-xs border-b border-neutral-800 pb-2 mb-4">Análise do Elenco</h3>
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-bold text-neutral-400">Geral</span>
+                  <span className={`text-2xl font-black ${isValido ? 'text-yellow-400' : 'text-neutral-600'}`}>{isValido ? ovrGeral : '--'}</span>
+                </div>
+                <div className="space-y-2 pt-2 border-t border-neutral-800/50">
+                  <div>
+                    <div className="flex justify-between text-xs font-bold mb-1">
+                      <span className="text-blue-400">Ataque</span>
+                      <span className="text-white">{ovrAtaque}</span>
+                    </div>
+                    <div className="w-full bg-neutral-950 h-1.5 rounded-full overflow-hidden">
+                      <div className="bg-blue-500 h-full rounded-full transition-all" style={{ width: `${Math.min(100, ovrAtaque)}%` }}></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-xs font-bold mb-1">
+                      <span className="text-green-400">Meio-Campo</span>
+                      <span className="text-white">{ovrMeio}</span>
+                    </div>
+                    <div className="w-full bg-neutral-950 h-1.5 rounded-full overflow-hidden">
+                      <div className="bg-green-500 h-full rounded-full transition-all" style={{ width: `${Math.min(100, ovrMeio)}%` }}></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-xs font-bold mb-1">
+                      <span className="text-orange-400">Defesa</span>
+                      <span className="text-white">{ovrDefesa}</span>
+                    </div>
+                    <div className="w-full bg-neutral-950 h-1.5 rounded-full overflow-hidden">
+                      <div className="bg-orange-500 h-full rounded-full transition-all" style={{ width: `${Math.min(100, ovrDefesa)}%` }}></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {!isValido && (
+                <div className="mt-6 p-3 bg-red-950/30 border border-red-900/50 rounded-lg text-center">
+                  <p className="text-[10px] text-red-500 font-bold uppercase tracking-widest">Escalação Incompleta</p>
+                </div>
+              )}
+            </div>
+            
+            <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-xl flex-1 flex flex-col">
+              <h3 className="text-neutral-500 font-black uppercase tracking-widest text-xs border-b border-neutral-800 pb-2 mb-4">Plantel Atual</h3>
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-bold text-neutral-400">Atletas Aptos</span>
+                <span className="text-sm font-black text-cyan-400">{reservas.filter(r => !r.statusFisico?.lesionado && !r.statusFisico?.suspenso).length}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-bold text-neutral-400">Dpto. Médico (DM)</span>
+                <span className="text-sm font-black text-orange-500">{elenco.filter(r => r.statusFisico?.lesionado).length}</span>
+              </div>
+              <div className="flex justify-between items-center mt-2">
+                <span className="text-sm font-bold text-neutral-400">Suspensos</span>
+                <span className="text-sm font-black text-red-500">{elenco.filter(r => r.statusFisico?.suspenso).length}</span>
+              </div>
+            </div>
+          </div>
 
-          {renderLinhaCampo('ATA', regraAtual.ATA, 0)}
-          {renderLinhaCampo('MEI', regraAtual.MEI, regraAtual.ATA)}
-          {renderLinhaCampo('DEF', regraAtual.DEF, regraAtual.ATA + regraAtual.MEI)}
-          {renderLinhaCampo('GOL', 1, 10)}
+          <div className="relative flex-1 min-h-150 md:min-h-187.5 bg-linear-to-b from-[#0a2e1c] to-[#041a0e] rounded-xl border-4 border-white/10 overflow-hidden flex flex-col justify-evenly py-6 sm:py-8 shadow-2xl">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-24 border-b-4 border-x-4 border-white/20 rounded-b-xl"></div>
+            <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-24 border-t-4 border-x-4 border-white/20 rounded-t-xl"></div>
+            <div className="absolute top-1/2 left-0 w-full border-t-4 border-white/20"></div>
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border-4 border-white/20 rounded-full"></div>
+
+            {renderLinhaCampo('ATA', regraAtual.ATA, 0)}
+            {renderLinhaCampo('MEI', regraAtual.MEI, regraAtual.ATA)}
+            {renderLinhaCampo('DEF', regraAtual.DEF, regraAtual.ATA + regraAtual.MEI)}
+            {renderLinhaCampo('GOL', 1, 10)}
+          </div>
+          
         </div>
       </div>
 
@@ -225,9 +317,10 @@ export default function Dashboard() {
                 <p className="text-neutral-500 text-center py-8 text-sm font-bold uppercase tracking-widest">Nenhum jogador disponível para improvisar nesta vaga.</p>
               )}
               {jogadoresParaModal.map(j => {
-                const isBloqueado = j.statusFisico?.lesionado || j.statusFisico?.suspenso;
+                const isLesionado = j.statusFisico?.lesionado;
+                const isSuspenso = j.statusFisico?.suspenso;
+                const isBloqueado = isLesionado || isSuspenso;
                 
-                // 4. PENALIDADE MOSTRADA NO MODAL
                 const isImprovisadoModal = j.posicao !== posicaoModal;
                 const overallPenalizado = isImprovisadoModal ? Math.floor(j.overall * 0.85) : j.overall;
 
@@ -243,14 +336,18 @@ export default function Dashboard() {
                     {!isBloqueado && <div className={`absolute top-0 left-0 w-1 h-full ${overallPenalizado >= 88 ? 'bg-yellow-500' : 'bg-neutral-500'}`}></div>}
                     <div className="pl-2">
                       <p className="font-black text-neutral-200">{j.nome}</p>
-                      <p className="text-[10px] text-neutral-400 font-bold uppercase mt-1 flex items-center gap-2">
-                        {j.clubeHistorico} 
-                        {isImprovisadoModal && <span className="text-red-400 font-black">⚠️ Improvisado ({j.posicao})</span>}
-                      </p>
-                      
-                      {isBloqueado && (
-                        <p className="text-xs text-orange-500 font-bold mt-1">INAPTO PARA JOGAR (Lesão/Cartão)</p>
-                      )}
+                      <div className="text-[10px] text-neutral-400 font-bold uppercase mt-1 flex items-center gap-2 flex-wrap">
+                        <span>{j.clubeHistorico}</span> 
+                        <span className="bg-neutral-800 text-cyan-400 px-1.5 py-0.5 rounded border border-neutral-700">
+                          {j.posicao}
+                        </span>
+                        {isImprovisadoModal && <span className="text-red-400 font-black">⚠️ Improvisado</span>}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        {renderEnergia(j.statusFisico?.cansaco ?? 1)}
+                        {isLesionado && <span className="text-[10px] text-orange-500 font-bold ml-1">🏥 INAPTO (Tratamento Médico)</span>}
+                        {isSuspenso && !isLesionado && <span className="text-[10px] text-red-500 font-bold ml-1">🟥 INAPTO (Suspenso 1 Jogo)</span>}
+                      </div>
                     </div>
                     <span className={`text-sm px-3 py-2 rounded font-black border ${overallPenalizado >= 88 ? 'bg-yellow-900/50 text-yellow-500 border-yellow-700/50' : 'bg-neutral-900 text-white border-neutral-700'}`}>
                       {overallPenalizado}

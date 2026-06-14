@@ -41,7 +41,7 @@ const AdminProtegido = () => {
     <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center font-sans p-4">
       <div className="bg-neutral-900 p-8 rounded-xl border border-neutral-800 shadow-2xl w-full max-w-sm">
         <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-2 text-center">Acesso Restrito</h2>
-        <p className="text-xs text-neutral-500 uppercase font-bold tracking-widest mb-8 text-center">Painel do Game Master</p>
+        <p className="text-xs text-neutral-500 uppercase font-bold tracking-widest mb-8 text-center">Painel da CBF</p>
         
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
           <input 

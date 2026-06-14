@@ -51,7 +51,8 @@ export interface JogoCamp {
   awayId: string;
   homeScore: number | null;
   awayScore: number | null;
-  relatorio: EventoPartida[]; // AQUI FOI ALTERADO DE string[] PARA EventoPartida[]
+  relatorio: EventoPartida[]; 
+  pressao?: { minuto: number; valor: number }[]; // NOVO: Gráfico de momentum da V2
 }
 
 export type GamePhase = 'SETUP' | 'PRE_SEASON' | 'CHAMPIONSHIP' | 'FIRST_HALF' | 'TRANSFER_WINDOW' | 'SECOND_HALF' | 'FINISHED';
