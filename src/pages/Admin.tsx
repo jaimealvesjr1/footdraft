@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { type Clube, type GamePhase, type GameState, type Posicao, type Jogador } from '../types'; 
 import { doc, setDoc, deleteDoc, onSnapshot, getDocs, collection, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase'; 
-import { simularPartidaV2 } from '../services/matchEngine';
+import { simularPartidaV2, escalarBot } from '../services/matchEngine';
 
 export default function Admin() {
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -51,7 +51,7 @@ export default function Admin() {
     } catch (error) { console.error(error); alert("❌ Erro ao iniciar."); }
   };
 
-  const promptParaIA = termoBusca ? `Gere um arquivo JSON com os 11 jogadores titulares do elenco do ${termoBusca}. ATENÇÃO: O 'id' de cada jogador deve ser único e no formato 'nome-time-ano-nome-jogador' (ex: 'cruzeiro-2003-gomes'). REGRAS OBRIGATÓRIAS: A propriedade 'posicao' DEVE conter EXATAMENTE E APENAS uma destas 4 opções: "GOL", "DEF", "MEI" ou "ATA". É estritamente proibido usar ZAG, VOL, LD, LE, SA, etc. Classifique os defesas todos como "DEF" e médios como "MEI". Siga esta estrutura:\n{\n  "id": "${termoBusca.toLowerCase().replace(/\s+/g, '-')}",\n  "nome": "${termoBusca.replace(/\d+/g, '').trim()}",\n  "ano": ${termoBusca.replace(/\D/g, '') || 2000},\n  "elenco": [\n    { "id": "cruzeiro-2003-gomes", "nome": "Gomes", "posicao": "GOL", "clubeHistorico": "${termoBusca}", "overall": 85, "statusFisico": { "cansaco": 1, "lesionado": false, "suspenso": false }, "temporadasNoClube": 0 }\n  ]\n}` : '';
+  const promptParaIA = termoBusca ? `Gere um arquivo JSON com um elenco completo de 18 a 22 jogadores do ${termoBusca}. ATENÇÃO: O 'id' de cada jogador deve ser único e no formato 'nome-time-ano-nome-jogador' (ex: 'cruzeiro-2003-gomes'). REGRAS OBRIGATÓRIAS: 1) A propriedade 'posicao' DEVE conter EXATAMENTE E APENAS uma destas 4 opções: "GOL", "DEF", "MEI" ou "ATA". É estritamente proibido usar ZAG, VOL, LD, LE, SA, etc. Classifique os defensores todos como "DEF" e médios como "MEI". 2) É ESTRITAMENTE OBRIGATÓRIO incluir pelo menos 2 jogadores com a posição "GOL" (guarda-redes) para garantir opções no banco de suplentes. Siga esta estrutura:\n{\n  "id": "${termoBusca.toLowerCase().replace(/\s+/g, '-')}",\n  "nome": "${termoBusca.replace(/\d+/g, '').trim()}",\n  "ano": ${termoBusca.replace(/\D/g, '') || 2000},\n  "elenco": [\n    { "id": "cruzeiro-2003-gomes", "nome": "Gomes", "posicao": "GOL", "clubeHistorico": "${termoBusca}", "overall": 85, "statusFisico": { "cansaco": 1, "lesionado": false, "suspenso": false }, "temporadasNoClube": 0 }\n  ]\n}` : '';
 
   const carregarJson = () => {
     try {
@@ -163,7 +163,6 @@ export default function Admin() {
   const simularRodadaAtual = async () => {
     if (!gameState || !gameState.schedule || !gameState.standings) return;
     
-    // Inicia o estado de salvamento (desativa o botão)
     setSalvando(true);
 
     try {
@@ -177,9 +176,40 @@ export default function Admin() {
       const jogos = rodadaAtualData.jogos;
       let novosStandings = [...gameState.standings];
 
+      // ==================================================
+      // NOVO: VALIDADOR RIGOROSO DE ESCALAÇÃO
+      // ==================================================
+      const validarTitularesHumanos = (titularesIds: string[], elenco: Jogador[], nomeTime: string) => {
+        // Se o técnico não salvar nada no vestiário, tenta validar os 11 primeiros da lista
+        const idsParaValidar = titularesIds.length > 0 ? titularesIds : elenco.slice(0, 11).map(j => j.id);
+        const time = idsParaValidar.map(id => elenco.find(j => j.id === id)).filter(Boolean) as Jogador[];
+
+        if (time.length < 11) {
+           throw new Error(`O time ${nomeTime} não possui 11 jogadores escalados!`);
+        }
+
+        // 1. Verifica jogadores irregulares (Lesionados ou Suspensos)
+        const irregulares = time.filter(j => j.statusFisico?.suspenso || j.statusFisico?.lesionado);
+        if (irregulares.length > 0) {
+          const nomes = irregulares.map(j => j.nome).join(", ");
+          throw new Error(`O time ${nomeTime} escalou jogadores irregulares (Lesionados/Suspensos): ${nomes}. A partida não pode começar. Dê uma bronca no técnico!`);
+        }
+
+        // 2. Verifica se tem goleiro
+        const temGoleiro = time.some(j => j.posicao.toUpperCase().includes('GOL') || j.posicao.toUpperCase() === 'GL');
+        if (!temGoleiro) {
+          throw new Error(`O time ${nomeTime} tentou entrar em campo sem um goleiro titular! A partida não pode começar.`);
+        }
+
+        return time;
+      };
+
       for (let jogo of jogos) {
         const isHomeUser = (gameState.teams || []).find(t => t.id === jogo.homeId)?.isUser || false;
         const isAwayUser = (gameState.teams || []).find(t => t.id === jogo.awayId)?.isUser || false;
+
+        const nomeHome = (gameState.teams || []).find(t => t.id === jogo.homeId)?.nome || "Mandante";
+        const nomeAway = (gameState.teams || []).find(t => t.id === jogo.awayId)?.nome || "Visitante";
         
         const homeDoc = await getDoc(doc(db, isHomeUser ? "usuarios" : "clubes", jogo.homeId));
         const awayDoc = await getDoc(doc(db, isAwayUser ? "usuarios" : "clubes", jogo.awayId));
@@ -190,28 +220,16 @@ export default function Admin() {
         const homeTitularesIds = homeDoc.data()?.titularesIds || [];
         const awayTitularesIds = awayDoc.data()?.titularesIds || [];
 
-        // Garante a ordem dos slots para o Fator P funcionar e não embaralhar a escalação
-        const homeTitulares = isHomeUser 
-          ? homeTitularesIds.map((id: string) => homeElenco.find(j => j.id === id)).filter(Boolean) as Jogador[]
-          : homeElenco.slice(0, 11);
-
-        const awayTitulares = isAwayUser 
-          ? awayTitularesIds.map((id: string) => awayElenco.find(j => j.id === id)).filter(Boolean) as Jogador[]
-          : awayElenco.slice(0, 11);
-
-        // 🚨 TRAVA DE SEGURANÇA QUE IMPEDE O BOTÃO DE CONGELAR
-        if (homeTitulares.length === 0) {
-          throw new Error(`O time mandante (ID: ${jogo.homeId}) não tem jogadores escalados! Se for um jogador real, peça para ele abrir o Vestiário e salvar a escalação.`);
-        }
-        if (awayTitulares.length === 0) {
-          throw new Error(`O time visitante (ID: ${jogo.awayId}) não tem jogadores escalados! Se for um jogador real, peça para ele abrir o Vestiário e salvar a escalação.`);
-        }
+        // Substituímos a função auto-reparo pela função de validação rigorosa
+        const homeTitulares = isHomeUser ? validarTitularesHumanos(homeTitularesIds, homeElenco, nomeHome) : escalarBot(homeElenco);
+        const awayTitulares = isAwayUser ? validarTitularesHumanos(awayTitularesIds, awayElenco, nomeAway) : escalarBot(awayElenco);
 
         const resultado = simularPartidaV2(homeTitulares, awayTitulares, {
           isUserA: isHomeUser,
           isUserB: isAwayUser,
           rodada: gameState.currentRound
         });
+        
         jogo.homeScore = resultado.golsCasa;
         jogo.awayScore = resultado.golsFora;
         jogo.relatorio = resultado.relatorio;
@@ -220,25 +238,33 @@ export default function Admin() {
         const resetarCansaco = gameState.currentRound === 19;
 
         const processarElenco = (elencoCompleto: Jogador[], titularesIdsValidos: string[], isCasa: boolean) => {
-        return elencoCompleto.map((jogador: Jogador) => {
-          if (!jogador) return jogador; // 🚨 TRAVA: Se o banco tiver um jogador nulo/corrompido, ignora.
+          return elencoCompleto.map((jogador: Jogador) => {
+            if (!jogador) return jogador;
 
-          let status = {
-            cansaco: jogador.statusFisico?.cansaco ?? 1,
+            let status = {
+              cansaco: jogador.statusFisico?.cansaco ?? 1,
               lesionado: jogador.statusFisico?.lesionado ?? false,
               suspenso: jogador.statusFisico?.suspenso ?? false, 
               amarelos: (jogador.statusFisico as any)?.amarelos ?? 0
             };
 
-            const isTitular = titularesIdsValidos.length > 0 
+            const estavaSuspenso = jogador.statusFisico?.suspenso === true;
+            const estavaLesionado = jogador.statusFisico?.lesionado === true;
+
+            // Se o jogador chegou até aqui (não foi barrado pelo validador),
+            // a suspensão dele é perdoada ANTES dos cartões da rodada atual.
+            if (estavaSuspenso) {
+              status.suspenso = false;
+            }
+
+            const isEscalado = titularesIdsValidos.length > 0 
               ? titularesIdsValidos.includes(jogador.id) 
               : elencoCompleto.indexOf(jogador) < 11;
               
+            const jogouDeVerdade = isEscalado && !estavaSuspenso && !estavaLesionado;
             const eventosDesteJogador = resultado.relatorio.filter((e: any) => e.jogadorId === jogador.id && e.time === (isCasa ? 'CASA' : 'FORA'));
-            
-            if (!isTitular && status.suspenso) status.suspenso = false;
 
-            if (isTitular) {
+            if (jogouDeVerdade) {
               if (!status.lesionado) status.cansaco = resetarCansaco ? 1 : Math.min(5, status.cansaco + 1);
               if (eventosDesteJogador.some((e: any) => e.tipo === 'LESAO')) status.lesionado = true;
               
@@ -248,8 +274,7 @@ export default function Admin() {
               if (vermelhoNaPartida) { 
                 status.suspenso = true; 
                 status.amarelos = 0; 
-              }
-              else if (amarelosNaPartida > 0) {
+              } else if (amarelosNaPartida > 0) {
                 status.amarelos += amarelosNaPartida;
                 if (status.amarelos >= 2) { 
                   status.suspenso = true; 
@@ -257,19 +282,19 @@ export default function Admin() {
                 }
               }
             } else {
-              if (status.lesionado) {
+              if (estavaLesionado) {
                 status.cansaco = Math.max(1, status.cansaco - 1);
-                if (status.cansaco === 1) {
-                  status.lesionado = false;
-                }
+                if (status.cansaco === 1) status.lesionado = false;
               } else {
                 if (status.cansaco > 1) status.cansaco = Math.max(1, status.cansaco - 2);
               }
-              if (resetarCansaco) {
-                 status.cansaco = 1;
-                 status.lesionado = false;
-              }
             }
+
+            if (resetarCansaco) {
+               status.cansaco = 1;
+               status.lesionado = false;
+            }
+            
             return { ...jogador, statusFisico: status };
           });
         };
@@ -309,16 +334,12 @@ export default function Admin() {
         phase: proximaFase, playersReady: []
       });
 
-      // Se tudo correu bem, emite o alerta de sucesso
       alert(mensagemAlert);
 
     } catch (error) {
-      // 🚨 CASO ACONTEÇA UM ERRO NO CÓDIGO (COMO TIME SEM JOGADORES), ELE CAI AQUI!
       console.error("Erro na Simulação:", error);
-      alert(`❌ Erro Crítico na Simulação: ${(error as Error).message}`);
-      
+      alert(`❌ SIMULAÇÃO ABORTADA: ${(error as Error).message}`);
     } finally {
-      // O FINALLY sempre executa. É a garantia de que o botão vai ser destravado!
       setSalvando(false);
     }
   };

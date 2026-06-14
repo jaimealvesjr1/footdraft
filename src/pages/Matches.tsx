@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { db, auth } from "../services/firebase";
 import { doc, onSnapshot, updateDoc, getDoc } from "firebase/firestore";
 import { type GameState, type Jogador } from "../types";
-import { type EventoPartida, simularPartidaV2 } from "../services/matchEngine";
+import { type EventoPartida, simularPartidaV2, escalarBot } from "../services/matchEngine";
 
 interface JogoAoVivo {
   timeA: string;
@@ -34,7 +34,9 @@ export default function Matches() {
   const [countdownToStart, setCountdownToStart] = useState<number | null>(null);
   const [simulandoMagicamente, setSimulandoMagicamente] = useState(false);
   
-  // O GUARDIÃO DE SINCRONIA: Fica a vigiar qual rodada precisamos transmitir
+  // NOVO: Estado para capturar e exibir o erro de escalação irregular na tela
+  const [erroSimulacao, setErroSimulacao] = useState<string | null>(null);
+  
   const rodadaEsperadaRef = useRef<number | null>(null);
 
   // ==========================================
@@ -47,26 +49,21 @@ export default function Matches() {
         setGameState(data);
         
         if (data.schedule) {
-          // Descobre qual é a primeira rodada que ainda está vazia (null)
           const indexNaoSimulada = data.schedule.findIndex((r: any) => r.jogos[0]?.homeScore == null);
           const rodadaAlvo = indexNaoSimulada !== -1 ? indexNaoSimulada : data.schedule.length;
 
           if (rodadaEsperadaRef.current === null) {
-            // Se acabou de entrar na tela, mira na rodada alvo
             rodadaEsperadaRef.current = rodadaAlvo;
           } else if (rodadaEsperadaRef.current < rodadaAlvo && !simulacaoAoVivo) {
-            // 🚨 A MÁGICA ACONTECE AQUI: A rodada mudou no banco! Toca o VT da rodada que estávamos a vigiar!
             iniciarPlayback(data, rodadaEsperadaRef.current);
             rodadaEsperadaRef.current = rodadaAlvo; 
           }
 
-          // Controle da fila de presença (apenas se a rodada atual ainda não foi simulada)
           if (rodadaAlvo === (data.currentRound - 1) && data.teams && (data as any).playersInLive) {
             const totalUsers = data.teams.filter((t: any) => t.isUser).length;
             const pessoasNaTV = (data as any).playersInLive.length;
 
-            // Se todo o mundo chegou, dá o play na contagem!
-            if (totalUsers > 0 && pessoasNaTV >= totalUsers && countdownToStart === null && !simulandoMagicamente && !simulacaoAoVivo) {
+            if (totalUsers > 0 && pessoasNaTV >= totalUsers && countdownToStart === null && !simulandoMagicamente && !simulacaoAoVivo && !erroSimulacao) {
               setCountdownToStart(10);
             }
           }
@@ -74,7 +71,7 @@ export default function Matches() {
       }
     });
     return () => unsub();
-  }, [simulacaoAoVivo, countdownToStart, simulandoMagicamente]);
+  }, [simulacaoAoVivo, countdownToStart, simulandoMagicamente, erroSimulacao]);
 
 
   // ==========================================
@@ -85,7 +82,6 @@ export default function Matches() {
     
     if (countdownToStart <= 0) {
       setCountdownToStart(null);
-      // Elege o "Player 1" para fazer a matemática por trás dos panos
       const liderId = gameState?.teams?.filter(t => t.isUser)[0]?.id;
       if (currentUserUid === liderId && !simulandoMagicamente) {
         executarSimulacaoAutomatica();
@@ -103,6 +99,7 @@ export default function Matches() {
   const executarSimulacaoAutomatica = async () => {
     if (!gameState || !gameState.schedule || !gameState.standings) return;
     setSimulandoMagicamente(true);
+    setErroSimulacao(null); // Limpa erros anteriores
 
     try {
       const rodadaIndex = gameState.currentRound - 1;
@@ -112,10 +109,40 @@ export default function Matches() {
       const jogos = rodadaAtualData.jogos;
       let novosStandings = [...gameState.standings];
 
+      // ==================================================
+      // NOVO: VALIDADOR RIGOROSO DE ESCALAÇÃO
+      // ==================================================
+      const validarTitularesHumanos = (titularesIds: string[], elenco: Jogador[], nomeTime: string) => {
+        const idsParaValidar = titularesIds.length > 0 ? titularesIds : elenco.slice(0, 11).map(j => j.id);
+        const time = idsParaValidar.map(id => elenco.find(j => j.id === id)).filter(Boolean) as Jogador[];
+
+        if (time.length < 11) {
+           throw new Error(`O time ${nomeTime} não possui 11 jogadores escalados!`);
+        }
+
+        // 1. Bloqueia lesionados e suspensos (Vermelho ou Acúmulo de Amarelos)
+        const irregulares = time.filter(j => j.statusFisico?.suspenso || j.statusFisico?.lesionado);
+        if (irregulares.length > 0) {
+          const nomes = irregulares.map(j => j.nome).join(", ");
+          throw new Error(`ESCÂNDALO! O time ${nomeTime} escalou jogadores irregulares (Lesionados/Suspensos): ${nomes}. A partida não pode começar!`);
+        }
+
+        // 2. Bloqueia times que entram sem goleiro
+        const temGoleiro = time.some(j => j.posicao.toUpperCase().includes('GOL') || j.posicao.toUpperCase() === 'GL');
+        if (!temGoleiro) {
+          throw new Error(`O time ${nomeTime} tentou entrar em campo sem um goleiro de ofício! A partida não pode começar!`);
+        }
+
+        return time;
+      };
+
       for (let jogo of jogos) {
         const isHomeUser = gameState.teams?.find(t => t.id === jogo.homeId)?.isUser || false;
         const isAwayUser = gameState.teams?.find(t => t.id === jogo.awayId)?.isUser || false;
         
+        const nomeHome = gameState.teams?.find(t => t.id === jogo.homeId)?.nome || "Mandante";
+        const nomeAway = gameState.teams?.find(t => t.id === jogo.awayId)?.nome || "Visitante";
+
         const homeDoc = await getDoc(doc(db, isHomeUser ? "usuarios" : "clubes", jogo.homeId));
         const awayDoc = await getDoc(doc(db, isAwayUser ? "usuarios" : "clubes", jogo.awayId));
         
@@ -125,22 +152,9 @@ export default function Matches() {
         const homeTitularesIds = homeDoc.data()?.titularesIds || [];
         const awayTitularesIds = awayDoc.data()?.titularesIds || [];
 
-        // Garante a ordem dos slots para o Fator P funcionar e não embaralhar a escalação
-        const homeTitulares = isHomeUser 
-          ? homeTitularesIds.map((id: string) => homeElenco.find(j => j.id === id)).filter(Boolean) as Jogador[]
-          : homeElenco.slice(0, 11);
-
-        const awayTitulares = isAwayUser 
-          ? awayTitularesIds.map((id: string) => awayElenco.find(j => j.id === id)).filter(Boolean) as Jogador[]
-          : awayElenco.slice(0, 11);
-
-        // 🚨 TRAVA DE SEGURANÇA QUE IMPEDE O BOTÃO DE CONGELAR
-        if (homeTitulares.length === 0) {
-          throw new Error(`O time mandante (ID: ${jogo.homeId}) não tem jogadores escalados! Se for um jogador real, peça para ele abrir o Vestiário e salvar a escalação.`);
-        }
-        if (awayTitulares.length === 0) {
-          throw new Error(`O time visitante (ID: ${jogo.awayId}) não tem jogadores escalados! Se for um jogador real, peça para ele abrir o Vestiário e salvar a escalação.`);
-        }
+        // Passa pelo crivo do validador. Se der erro, ele aborta a simulação na hora!
+        const homeTitulares = isHomeUser ? validarTitularesHumanos(homeTitularesIds, homeElenco, nomeHome) : escalarBot(homeElenco);
+        const awayTitulares = isAwayUser ? validarTitularesHumanos(awayTitularesIds, awayElenco, nomeAway) : escalarBot(awayElenco);
 
         const resultado = simularPartidaV2(homeTitulares, awayTitulares, {
           isUserA: isHomeUser,
@@ -158,6 +172,7 @@ export default function Matches() {
         const processarElenco = (elencoCompleto: Jogador[], titularesIdsValidos: string[], isCasa: boolean) => {
           return elencoCompleto.map((jogador: Jogador) => {
             if (!jogador) return jogador;
+
             let status = {
               cansaco: jogador.statusFisico?.cansaco ?? 1, 
               lesionado: jogador.statusFisico?.lesionado ?? false,
@@ -165,15 +180,19 @@ export default function Matches() {
               amarelos: (jogador.statusFisico as any)?.amarelos ?? 0
             };
 
-            const isTitular = titularesIdsValidos.length > 0 
+            const estavaSuspenso = jogador.statusFisico?.suspenso === true;
+            const estavaLesionado = jogador.statusFisico?.lesionado === true;
+
+            if (estavaSuspenso) status.suspenso = false;
+
+            const isEscalado = titularesIdsValidos.length > 0 
               ? titularesIdsValidos.includes(jogador.id) 
               : elencoCompleto.indexOf(jogador) < 11;
               
+            const jogouDeVerdade = isEscalado && !estavaSuspenso && !estavaLesionado;
             const eventosDesteJogador = resultado.relatorio.filter((e: any) => e.jogadorId === jogador.id && e.time === (isCasa ? 'CASA' : 'FORA'));
-            
-            if (!isTitular && status.suspenso) status.suspenso = false;
 
-            if (isTitular) {
+            if (jogouDeVerdade) {
               if (!status.lesionado) status.cansaco = resetarCansaco ? 1 : Math.min(5, status.cansaco + 1);
               if (eventosDesteJogador.some((e: any) => e.tipo === 'LESAO')) status.lesionado = true;
               
@@ -191,17 +210,19 @@ export default function Matches() {
                 }
               }
             } else {
-              if (status.lesionado) {
+              if (estavaLesionado) {
                 status.cansaco = Math.max(1, status.cansaco - 1);
                 if (status.cansaco === 1) status.lesionado = false;
               } else {
                 if (status.cansaco > 1) status.cansaco = Math.max(1, status.cansaco - 2);
               }
-              if (resetarCansaco) {
-                 status.cansaco = 1;
-                 status.lesionado = false;
-              }
             }
+
+            if (resetarCansaco) {
+               status.cansaco = 1;
+               status.lesionado = false;
+            }
+            
             return { ...jogador, statusFisico: status };
           });
         };
@@ -228,11 +249,8 @@ export default function Matches() {
       let updatedSchedule = gameState.schedule.map((rodada, index) => index === rodadaIndex ? { jogos: jogos } : rodada);
       let proximaFase = gameState.phase;
 
-      if (gameState.currentRound === 19) {
-        proximaFase = 'TRANSFER_WINDOW';
-      } else if (gameState.currentRound === 38) {
-        proximaFase = 'FINISHED';
-      }
+      if (gameState.currentRound === 19) proximaFase = 'TRANSFER_WINDOW';
+      else if (gameState.currentRound === 38) proximaFase = 'FINISHED';
 
       await updateDoc(doc(db, "game", "state"), {
         schedule: updatedSchedule, 
@@ -245,6 +263,8 @@ export default function Matches() {
 
     } catch (error) {
       console.error("Erro na Simulação Automática", error);
+      // Salva o erro no estado para mostrar o alerta gigante na tela!
+      setErroSimulacao((error as Error).message);
     } finally {
       setSimulandoMagicamente(false);
     }
@@ -294,7 +314,7 @@ export default function Matches() {
           ...p,
           golsCasaLive: novosGolsA,
           golsForaLive: novosGolsB,
-          eventosLive: [...eventosAgora, ...p.eventosLive], // Corrigido erro de tipografia aqui!
+          eventosLive: [...eventosAgora, ...p.eventosLive],
           pressaoLive: pressaoAgora, 
         };
       })
@@ -349,7 +369,15 @@ export default function Matches() {
           </p>
           
           <div className="my-14">
-            {countdownToStart !== null ? (
+            {erroSimulacao ? (
+              <div className="animate-fade-in bg-fifa-red/10 border border-fifa-red p-6 rounded-xl shadow-lg">
+                <h2 className="text-3xl text-fifa-red font-black tracking-widest uppercase mb-4 animate-pulse">🚨 JOGO PARALISADO!</h2>
+                <p className="text-white font-bold mb-6 text-sm">{erroSimulacao}</p>
+                <button onClick={() => setErroSimulacao(null)} className="w-full bg-neutral-800 hover:bg-neutral-700 uppercase tracking-widest py-3 rounded-lg text-white font-black transition-colors">
+                  Aguardar Correção do Técnico
+                </button>
+              </div>
+            ) : countdownToStart !== null ? (
               <div className="animate-fade-in">
                  <h2 className="text-4xl text-yellow-500 font-black animate-pulse tracking-widest">TODOS PRONTOS!</h2>
                  <p className="text-neutral-400 font-bold uppercase tracking-widest mt-4">O juiz vai apitar o início em</p>
