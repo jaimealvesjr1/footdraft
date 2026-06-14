@@ -190,8 +190,14 @@ export default function Admin() {
         const homeTitularesIds = homeDoc.data()?.titularesIds || [];
         const awayTitularesIds = awayDoc.data()?.titularesIds || [];
 
-        const homeTitulares = isHomeUser ? homeElenco.filter((j: Jogador) => homeTitularesIds.includes(j.id)) : homeElenco.slice(0, 11);
-        const awayTitulares = isAwayUser ? awayElenco.filter((j: Jogador) => awayTitularesIds.includes(j.id)) : awayElenco.slice(0, 11);
+        // Garante a ordem dos slots para o Fator P funcionar e não embaralhar a escalação
+        const homeTitulares = isHomeUser 
+          ? homeTitularesIds.map((id: string) => homeElenco.find(j => j.id === id)).filter(Boolean) as Jogador[]
+          : homeElenco.slice(0, 11);
+
+        const awayTitulares = isAwayUser 
+          ? awayTitularesIds.map((id: string) => awayElenco.find(j => j.id === id)).filter(Boolean) as Jogador[]
+          : awayElenco.slice(0, 11);
 
         // 🚨 TRAVA DE SEGURANÇA QUE IMPEDE O BOTÃO DE CONGELAR
         if (homeTitulares.length === 0) {
@@ -201,7 +207,11 @@ export default function Admin() {
           throw new Error(`O time visitante (ID: ${jogo.awayId}) não tem jogadores escalados! Se for um jogador real, peça para ele abrir o Vestiário e salvar a escalação.`);
         }
 
-        const resultado = simularPartidaV2(homeTitulares, awayTitulares);
+        const resultado = simularPartidaV2(homeTitulares, awayTitulares, {
+          isUserA: isHomeUser,
+          isUserB: isAwayUser,
+          rodada: gameState.currentRound
+        });
         jogo.homeScore = resultado.golsCasa;
         jogo.awayScore = resultado.golsFora;
         jogo.relatorio = resultado.relatorio;
@@ -376,24 +386,24 @@ export default function Admin() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-200 p-8 font-sans">
+    <div className="min-h-screen bg-neutral-950 text-neutral-200 p-8 font-fifa">
       <div className="max-w-7xl mx-auto space-y-8">
         
         {/* CABEÇALHO COM INFOS DA SALA E BARRA DE PROGRESSO */}
         <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-xl gap-6">
           <div className="flex-1 w-full">
-            <h1 className="text-3xl font-black text-white uppercase tracking-tighter">Painel do <span className="text-yellow-500">Game Master</span></h1>
+            <h1 className="text-3xl font-black text-white uppercase tracking-tighter">Painel do <span className="text-fifa-blue">Game Master</span></h1>
             <p className="text-sm text-neutral-400 mt-2 font-bold tracking-widest uppercase">
-              Fase Atual: <span className="text-yellow-400">{gameState?.phase || '...'}</span> | Rodada: <span className="text-cyan-400">{gameState?.currentRound || 0}</span>/38
+              Fase Atual: <span className="text-fifa-green">{gameState?.phase || '...'}</span> | Rodada: <span className="text-fifa-blue">{gameState?.currentRound || 0}</span>/38
             </p>
-            {/* Barra de Progresso do Brasileirão */}
+            {/* Barra de Progresso */}
             <div className="mt-4 w-full bg-neutral-950 h-2 rounded-full overflow-hidden border border-neutral-800">
-              <div className="bg-cyan-500 h-full transition-all duration-1000" style={{ width: `${Math.min(100, ((gameState?.currentRound || 0) / 38) * 100)}%` }}></div>
+              <div className="bg-linear-to-r from-fifa-green via-fifa-blue to-fifa-red h-full transition-all duration-1000" style={{ width: `${Math.min(100, ((gameState?.currentRound || 0) / 38) * 100)}%` }}></div>
             </div>
           </div>
           <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 text-center shrink-0 min-w-40">
             <p className="text-xs text-neutral-500 uppercase font-black">Jogadores Prontos</p>
-            <p className="text-3xl font-black text-cyan-400">{gameState?.playersReady?.length || 0}</p>
+            <p className="text-3xl font-black text-fifa-green">{gameState?.playersReady?.length || 0}</p>
           </div>
         </div>
 
@@ -402,25 +412,25 @@ export default function Admin() {
           <div className="bg-neutral-900 p-5 rounded-xl border border-neutral-800 flex flex-col gap-3">
             <h3 className="text-xs text-neutral-500 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">1. Preparação</h3>
             <button onClick={() => mudarFase('SETUP')} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 font-bold rounded text-white shadow transition-all text-sm">Sala de Espera</button>
-            <button onClick={iniciarPreTemporada} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 border border-yellow-500/30 text-yellow-500 font-bold rounded shadow transition-all text-sm">Iniciar Pré-Temporada</button>
+            <button onClick={iniciarPreTemporada} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-fifa-gray-light font-bold rounded shadow transition-all text-sm">Iniciar Pré-Temporada</button>
           </div>
 
-          <div className="bg-neutral-900 p-5 rounded-xl border-t-4 border-t-cyan-500 flex flex-col gap-3 shadow-lg">
-            <h3 className="text-xs text-cyan-500 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">2. Campeonato</h3>
-            <button onClick={gerarCampeonato} className="w-full py-2 bg-cyan-900 hover:bg-cyan-800 text-cyan-300 font-bold rounded shadow transition-all text-sm uppercase tracking-widest">Gerar Tabela (38 RDs)</button>
-            <button onClick={simularRodadaAtual} disabled={salvando} className="w-full py-3 bg-cyan-600 hover:bg-cyan-500 font-black rounded text-white shadow-lg transition-all uppercase tracking-widest mt-auto">
+          <div className="bg-neutral-900 p-5 rounded-xl border-t-4 border-t-fifa-blue flex flex-col gap-3 shadow-lg">
+            <h3 className="text-xs text-fifa-blue font-black uppercase tracking-widest border-b border-neutral-800 pb-2">2. Campeonato</h3>
+            <button onClick={gerarCampeonato} className="w-full py-2 bg-fifa-blue/20 hover:bg-fifa-blue/30 border border-fifa-blue/50 text-fifa-blue font-bold rounded shadow transition-all text-sm uppercase tracking-widest">Gerar Tabela (38 RDs)</button>
+            <button onClick={simularRodadaAtual} disabled={salvando} className="w-full py-3 bg-fifa-blue hover:bg-opacity-80 font-black rounded text-white shadow-lg transition-all uppercase tracking-widest mt-auto">
               {salvando ? 'A Processar...' : `Simular Rodada ${Math.min(38, gameState?.currentRound || 1)}`}
             </button>
           </div>
 
-          <div className="bg-neutral-900 p-5 rounded-xl border-t-4 border-t-purple-500 flex flex-col gap-3 shadow-lg">
-            <h3 className="text-xs text-purple-400 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">3. Meio de Temporada</h3>
-            <button onClick={iniciarJanelaTransferencias} className="w-full py-2 bg-purple-900 hover:bg-purple-800 text-purple-300 font-bold rounded shadow transition-all text-sm">Abrir Janela de Transf.</button>
-            <button onClick={iniciarReturno} className="w-full py-2 bg-green-900 hover:bg-green-800 text-green-300 font-bold rounded shadow transition-all text-sm mt-auto">Iniciar Returno ▶️</button>
+          <div className="bg-neutral-900 p-5 rounded-xl border-t-4 border-t-fifa-green flex flex-col gap-3 shadow-lg">
+            <h3 className="text-xs text-fifa-green font-black uppercase tracking-widest border-b border-neutral-800 pb-2">3. Meio de Temporada</h3>
+            <button onClick={iniciarJanelaTransferencias} className="w-full py-2 bg-fifa-green/20 hover:bg-fifa-green/30 border border-fifa-green/50 text-fifa-green font-bold rounded shadow transition-all text-sm">Abrir Janela de Transf.</button>
+            <button onClick={iniciarReturno} className="w-full py-2 bg-fifa-green hover:bg-opacity-80 text-white font-bold rounded shadow transition-all text-sm mt-auto">Iniciar Returno ▶️</button>
           </div>
 
-          <div className="bg-red-950/20 p-5 rounded-xl border border-red-900/30 flex flex-col justify-end">
-            <button onClick={resetarPreTemporada} disabled={salvando} className="w-full py-3 bg-red-950 hover:bg-red-900 border border-red-700 text-red-500 font-black tracking-widest uppercase rounded shadow transition-all">🚨 Resetar Servidor</button>
+          <div className="bg-fifa-red/10 p-5 rounded-xl border border-fifa-red/30 flex flex-col justify-end">
+            <button onClick={resetarPreTemporada} disabled={salvando} className="w-full py-3 bg-fifa-red/20 hover:bg-fifa-red/40 border border-fifa-red/50 text-fifa-red font-black tracking-widest uppercase rounded shadow transition-all">🚨 Resetar Servidor</button>
           </div>
         </div>
 
@@ -428,11 +438,11 @@ export default function Admin() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pt-8 border-t border-neutral-900">
           <div className="space-y-8">
             <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-xl">
-              <h2 className="font-black text-lg text-white mb-4 uppercase tracking-widest flex items-center gap-2"><span className="text-cyan-400">🤖</span> Importar JSON</h2>
-              <input type="text" placeholder="Prompt (Ex: Cruzeiro 2003)" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 text-white p-3 rounded-xl mb-3 focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all placeholder:text-neutral-600 font-bold"/>
-              {promptParaIA && <button onClick={() => navigator.clipboard.writeText(promptParaIA)} className="w-full mb-4 text-xs bg-cyan-900/20 border border-cyan-900/50 text-cyan-400 py-3 rounded-lg font-black uppercase tracking-widest hover:bg-cyan-900/40 transition-colors">Copiar Prompt Gerado</button>}
-              <textarea placeholder='Cole o JSON retornado pela IA aqui...' value={jsonImportado} onChange={(e) => setJsonImportado(e.target.value)} className="w-full h-32 p-4 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-yellow-500 font-mono mb-4 focus:border-yellow-500 outline-none placeholder:text-neutral-700"/>
-              <button onClick={carregarJson} disabled={!jsonImportado} className="w-full bg-yellow-500 text-neutral-950 py-3 rounded-xl font-black uppercase tracking-widest hover:bg-yellow-400 disabled:opacity-50 transition-colors shadow-lg">Analisar e Editar JSON</button>
+              <h2 className="font-black text-lg text-white mb-4 uppercase tracking-widest flex items-center gap-2"><span className="text-fifa-blue">🤖</span> Importar JSON</h2>
+              <input type="text" placeholder="Prompt (Ex: Cruzeiro 2003)" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 text-white p-3 rounded-xl mb-3 focus:border-fifa-blue focus:ring-1 focus:ring-fifa-blue outline-none transition-all placeholder:text-neutral-600 font-bold"/>
+              {promptParaIA && <button onClick={() => navigator.clipboard.writeText(promptParaIA)} className="w-full mb-4 text-xs bg-fifa-blue/20 border border-fifa-blue/50 text-fifa-blue py-3 rounded-lg font-black uppercase tracking-widest hover:bg-fifa-blue/30 transition-colors">Copiar Prompt Gerado</button>}
+              <textarea placeholder='Cole o JSON retornado pela IA aqui...' value={jsonImportado} onChange={(e) => setJsonImportado(e.target.value)} className="w-full h-32 p-4 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-fifa-green font-mono mb-4 focus:border-fifa-blue outline-none placeholder:text-neutral-700"/>
+              <button onClick={carregarJson} disabled={!jsonImportado} className="w-full bg-fifa-blue text-white py-3 rounded-xl font-black uppercase tracking-widest hover:bg-opacity-80 disabled:opacity-50 transition-colors shadow-lg">Analisar e Editar JSON</button>
               {erroJson && <p className="text-orange-500 text-xs mt-3 font-bold bg-orange-950/30 p-2 rounded">{erroJson}</p>}
             </div>
 
@@ -442,12 +452,12 @@ export default function Admin() {
                 {clubesSalvos.map(clube => (
                   <div key={clube.id} className="flex justify-between items-center bg-neutral-950 p-4 rounded-xl border border-neutral-800 hover:border-neutral-700 hover:bg-neutral-900/50 transition-all group">
                     <div>
-                      <p className="font-black text-white uppercase tracking-tight">{clube.nome} <span className="text-yellow-500">{clube.ano}</span></p>
-                      <p className="text-[10px] text-cyan-400 font-black uppercase tracking-widest mt-1">{clube.elenco.length} Atletas • OVR: {getClubeOvr(clube.elenco)}</p>
+                      <p className="font-black text-white uppercase tracking-tight">{clube.nome} <span className="text-fifa-green">{clube.ano}</span></p>
+                      <p className="text-[10px] text-fifa-blue font-black uppercase tracking-widest mt-1">{clube.elenco.length} Atletas • OVR: {getClubeOvr(clube.elenco)}</p>
                     </div>
                     <div className="flex gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => setClubeEmEdicao(clube)} className="text-xs bg-neutral-800 px-4 py-2 rounded-lg font-black text-white hover:bg-neutral-700 hover:text-yellow-400 transition-colors shadow-sm">Editar</button>
-                      <button onClick={() => excluirClube(clube.id)} className="text-xs bg-red-950/40 text-red-500 px-3 py-2 rounded-lg font-black hover:bg-red-900 hover:text-white transition-colors">X</button>
+                      <button onClick={() => setClubeEmEdicao(clube)} className="text-xs bg-neutral-800 px-4 py-2 rounded-lg font-black text-white hover:bg-neutral-700 hover:text-fifa-blue transition-colors shadow-sm">Editar</button>
+                      <button onClick={() => excluirClube(clube.id)} className="text-xs bg-fifa-red/20 text-fifa-red px-3 py-2 rounded-lg font-black hover:bg-fifa-red hover:text-white transition-colors">X</button>
                     </div>
                   </div>
                 ))}
@@ -457,7 +467,7 @@ export default function Admin() {
 
           <div className="lg:col-span-2">
             {clubeEmEdicao ? (
-              <div className="bg-neutral-900 p-6 rounded-xl border border-yellow-500/50 shadow-[0_0_30px_rgba(250,204,21,0.05)] flex flex-col h-full">
+              <div className="bg-neutral-900 p-6 rounded-xl border border-fifa-green/50 shadow-[0_0_30px_rgba(60,172,59,0.05)] flex flex-col h-full">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 border-b border-neutral-800 pb-6 gap-4">
                   <div>
                     <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Inspetor de Elenco</h2>
@@ -465,18 +475,18 @@ export default function Admin() {
                   </div>
                   <div className="flex gap-3 w-full md:w-auto">
                     <button onClick={() => setClubeEmEdicao(null)} className="flex-1 md:flex-none px-6 py-3 bg-neutral-800 rounded-xl font-black uppercase tracking-widest text-neutral-400 hover:bg-neutral-700 hover:text-white transition-colors">Descartar</button>
-                    <button onClick={salvarClube} disabled={salvando} className="flex-1 md:flex-none px-6 py-3 bg-yellow-500 rounded-xl font-black uppercase tracking-widest text-neutral-950 hover:bg-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)] transition-colors">{salvando ? 'A Processar...' : 'Injetar na Base'}</button>
+                    <button onClick={salvarClube} disabled={salvando} className="flex-1 md:flex-none px-6 py-3 bg-fifa-green rounded-xl font-black uppercase tracking-widest text-white hover:bg-opacity-80 shadow-[0_0_15px_rgba(60,172,59,0.3)] transition-colors">{salvando ? 'A Processar...' : 'Injetar na Base'}</button>
                   </div>
                 </div>
 
                 <div className="flex flex-col md:flex-row gap-4 mb-8">
                   <div className="flex-1">
-                    <label className="block text-[10px] font-black text-cyan-400 uppercase tracking-widest mb-2">Designação do Clube</label>
-                    <input type="text" value={clubeEmEdicao.nome} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, nome: e.target.value})} className="w-full bg-neutral-950 border border-neutral-800 p-4 rounded-xl text-white font-black uppercase focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all"/>
+                    <label className="block text-[10px] font-black text-fifa-blue uppercase tracking-widest mb-2">Designação do Clube</label>
+                    <input type="text" value={clubeEmEdicao.nome} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, nome: e.target.value})} className="w-full bg-neutral-950 border border-neutral-800 p-4 rounded-xl text-white font-black uppercase focus:border-fifa-blue focus:ring-1 focus:ring-fifa-blue outline-none transition-all"/>
                   </div>
                   <div className="w-full md:w-40">
-                    <label className="block text-[10px] font-black text-cyan-400 uppercase tracking-widest mb-2">Temporada</label>
-                    <input type="number" value={clubeEmEdicao.ano} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, ano: Number(e.target.value)})} className="w-full bg-neutral-950 border border-neutral-800 p-4 rounded-xl text-yellow-500 font-black text-center focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 outline-none transition-all"/>
+                    <label className="block text-[10px] font-black text-fifa-blue uppercase tracking-widest mb-2">Temporada</label>
+                    <input type="number" value={clubeEmEdicao.ano} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, ano: Number(e.target.value)})} className="w-full bg-neutral-950 border border-neutral-800 p-4 rounded-xl text-fifa-green font-black text-center focus:border-fifa-blue focus:ring-1 focus:ring-fifa-blue outline-none transition-all"/>
                   </div>
                 </div>
 
@@ -488,17 +498,17 @@ export default function Admin() {
                   </div>
                   <div className="space-y-3 max-h-125 overflow-y-auto custom-scrollbar pr-2">
                     {clubeEmEdicao.elenco.map((jogador, index) => (
-                      <div key={jogador.id || index} className="grid grid-cols-12 gap-4 bg-neutral-900/50 p-3 rounded-lg border border-neutral-800 items-center hover:border-neutral-700 transition-colors focus-within:border-yellow-500/50">
+                      <div key={jogador.id || index} className="grid grid-cols-12 gap-4 bg-neutral-900/50 p-3 rounded-lg border border-neutral-800 items-center hover:border-neutral-700 transition-colors focus-within:border-fifa-blue/50">
                         <div className="col-span-6 md:col-span-5">
-                          <input type="text" value={jogador.nome} onChange={(e) => handleEditJogador(jogador.id, 'nome', e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded-lg text-white text-sm font-bold focus:border-yellow-500 outline-none transition-colors"/>
+                          <input type="text" value={jogador.nome} onChange={(e) => handleEditJogador(jogador.id, 'nome', e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded-lg text-white text-sm font-bold focus:border-fifa-blue outline-none transition-colors"/>
                         </div>
                         <div className="col-span-3 md:col-span-3">
-                          <select value={jogador.posicao} onChange={(e) => handleEditJogador(jogador.id, 'posicao', e.target.value as Posicao)} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded-lg text-cyan-400 text-sm font-black focus:border-yellow-500 outline-none transition-colors cursor-pointer">
+                          <select value={jogador.posicao} onChange={(e) => handleEditJogador(jogador.id, 'posicao', e.target.value as Posicao)} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded-lg text-fifa-blue text-sm font-black focus:border-fifa-blue outline-none transition-colors cursor-pointer">
                             <option value="GOL">GOL</option><option value="DEF">DEF</option><option value="MEI">MEI</option><option value="ATA">ATA</option>
                           </select>
                         </div>
                         <div className="col-span-3 md:col-span-2">
-                          <input type="number" value={jogador.overall} onChange={(e) => handleEditJogador(jogador.id, 'overall', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded-lg text-yellow-500 font-black text-center text-sm focus:border-yellow-500 outline-none transition-colors"/>
+                          <input type="number" value={jogador.overall} onChange={(e) => handleEditJogador(jogador.id, 'overall', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded-lg text-fifa-green font-black text-center text-sm focus:border-fifa-blue outline-none transition-colors"/>
                         </div>
                         <div className="hidden md:flex col-span-2 items-center justify-center gap-3">
                           <span className={`text-sm ${jogador.statusFisico?.lesionado ? 'text-red-500 drop-shadow-md' : 'text-neutral-700 opacity-20'}`} title="Risco de Lesão">🏥</span>

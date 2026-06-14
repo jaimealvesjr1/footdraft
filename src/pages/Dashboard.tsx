@@ -64,7 +64,12 @@ export default function Dashboard() {
 
   const reservas = useMemo(() => elenco.filter(j => !titularesIds.includes(j.id)), [elenco, titularesIds]);
   const regraAtual = REGRAS_FORMACAO[formacao] || REGRAS_FORMACAO["4-3-3"];
-  const isValido = titularesIds.every(id => id !== null);
+  
+  const isValido = titularesIds.every(id => {
+    if (id === null) return false;
+    const jogador = elenco.find(j => j.id === id);
+    return jogador && !jogador.statusFisico?.lesionado && !jogador.statusFisico?.suspenso;
+  });
 
   // 🚨 CORREÇÃO: Todos os Hooks (useMemo) precisam ficar ANTES do if (carregando) return...
   const posicoesAceitas = POSICOES_PERMITIDAS[posicaoModal] || [posicaoModal];
@@ -162,16 +167,16 @@ export default function Dashboard() {
           return (
             <div key={slotOcupado} onClick={() => abrirModal(posicao, slotOcupado, jogador?.id || null)} className="relative w-16 h-24 sm:w-24 sm:h-37.5 cursor-pointer transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_15px_30px_rgba(0,0,0,0.6)] group">
               {jogador ? (
-                <div className={`w-full h-full flex flex-col justify-between p-1.5 sm:p-2 rounded-t-sm rounded-b-xl border-2 shadow-xl overflow-hidden ${overallExibido >= 88 ? 'bg-linear-to-b from-yellow-200 via-yellow-600 to-neutral-950 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)]' : 'bg-linear-to-b from-neutral-200 via-neutral-500 to-neutral-950 border-neutral-400 shadow-lg'}`}>
+                <div className={`w-full h-full flex flex-col justify-between p-1.5 sm:p-2 rounded-t-sm rounded-b-xl border-2 shadow-xl overflow-hidden transition-all ${overallExibido >= 88 ? 'bg-linear-to-br from-neutral-900 via-fifa-blue/40 to-fifa-green/40 border-fifa-green shadow-[0_0_20px_rgba(60,172,59,0.5)]' : 'bg-neutral-900 border-fifa-gray-dark shadow-lg hover:border-fifa-blue'}`}>
                   <div className="flex flex-col items-start leading-none z-10">
-                    <span className={`text-sm sm:text-xl font-black tracking-tighter ${overallExibido >= 88 ? 'text-yellow-950' : 'text-white'}`}>{overallExibido}</span>
-                    <span className={`text-[8px] sm:text-[10px] font-black uppercase ${overallExibido >= 88 ? 'text-yellow-900' : 'text-neutral-400'}`}>
+                    <span className={`text-sm sm:text-xl font-black tracking-tighter ${overallExibido >= 88 ? 'text-fifa-green' : 'text-white'}`}>{overallExibido}</span>
+                    <span className="text-[8px] sm:text-[10px] font-black uppercase text-fifa-gray-light">
                       {isImprovisado ? `IMP (${jogador.posicao})` : jogador.posicao}
                     </span>
                   </div>
                   <div className="flex flex-col items-center w-full mt-auto z-10">
-                    <div className={`w-full h-px mb-1 opacity-40 ${overallExibido >= 88 ? 'bg-yellow-950' : 'bg-black'}`}></div>
-                    <span className={`text-[9px] sm:text-xs font-black truncate w-full text-center tracking-tight leading-none pb-1 ${overallExibido >= 88 ? 'text-yellow-100' : 'text-white'}`}>{jogador.nome}</span>
+                    <div className={`w-full h-px mb-1 opacity-50 ${overallExibido >= 88 ? 'bg-fifa-green' : 'bg-fifa-gray-dark'}`}></div>
+                    <span className="text-[9px] sm:text-xs font-black truncate w-full text-center tracking-tight leading-none pb-1 text-white drop-shadow-md">{jogador.nome}</span>
                     <div className="flex items-center justify-center gap-1.5 mt-0.5 w-full">
                       {renderEnergia(jogador.statusFisico?.cansaco ?? 1)}
                       {jogador.statusFisico?.lesionado && <span className="text-[10px] drop-shadow-md">🏥</span>}
@@ -200,27 +205,27 @@ export default function Dashboard() {
   const nivelTecnico = Math.floor(xpTotal / 100) + 1;
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-200 p-4 md:p-8 flex flex-col font-sans">
+    <div className="min-h-screen bg-neutral-950 text-neutral-200 p-4 md:p-8 flex flex-col font-fifa">
       <div className="max-w-7xl mx-auto w-full space-y-6">
         
         <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-2xl">
           <div className="flex items-center gap-6">
-            <div className="w-16 h-16 bg-neutral-950 border-2 border-cyan-500 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.3)]">
-              <span className="text-2xl font-black text-cyan-400">{nivelTecnico}</span>
+            <div className="w-16 h-16 bg-neutral-950 border-2 border-fifa-blue rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(42,57,141,0.4)]">
+              <span className="text-2xl font-black text-fifa-blue">{nivelTecnico}</span>
             </div>
             <div>
               <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter">{nomeTime}</h1>
-              <p className="text-cyan-400 font-bold uppercase tracking-widest text-xs mt-1">Técnico: {nomeTecnico} • <span className="text-yellow-500">{xpTotal} XP</span></p>
+              <p className="text-neutral-400 font-bold uppercase tracking-widest text-xs mt-1">Técnico: {nomeTecnico} • <span className="text-fifa-red">{xpTotal} XP</span></p>
             </div>
           </div>
           <div className="flex gap-4 mt-4 md:mt-0 items-center w-full md:w-auto">
-            <select value={formacao} onChange={(e) => { setFormacao(e.target.value as Formacao); setTitularesIds(Array(11).fill(null)); }} className="flex-1 md:flex-none bg-neutral-950 text-white p-4 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-yellow-500">
+            <select value={formacao} onChange={(e) => { setFormacao(e.target.value as Formacao); setTitularesIds(Array(11).fill(null)); }} className="flex-1 md:flex-none bg-neutral-950 text-white p-4 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-fifa-blue">
               <option value="4-3-3">Tática 4-3-3</option>
               <option value="4-4-2">Tática 4-4-2</option>
               <option value="3-5-2">Tática 3-5-2</option>
               <option value="4-5-1">Tática 4-5-1</option>
             </select>
-            <button onClick={salvarEscalacao} disabled={!isValido} className={`flex-1 md:flex-none px-8 py-4 rounded-lg font-black uppercase tracking-widest transition-all ${isValido ? 'bg-yellow-500 text-neutral-950 hover:bg-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.3)]' : 'bg-neutral-800 text-neutral-600 cursor-not-allowed'}`}>
+            <button onClick={salvarEscalacao} disabled={!isValido} className={`flex-1 md:flex-none px-8 py-4 rounded-lg font-black uppercase tracking-widest transition-all ${isValido ? 'bg-fifa-green text-white hover:bg-opacity-90 shadow-[0_0_15px_rgba(60,172,59,0.4)]' : 'bg-neutral-800 text-neutral-600 cursor-not-allowed'}`}>
               IR PARA O JOGO
             </button>
           </div>
@@ -233,41 +238,43 @@ export default function Dashboard() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <span className="text-sm font-bold text-neutral-400">Geral</span>
-                  <span className={`text-2xl font-black ${isValido ? 'text-yellow-400' : 'text-neutral-600'}`}>{isValido ? ovrGeral : '--'}</span>
+                  <span className={`text-2xl font-black ${isValido ? 'text-fifa-green' : 'text-neutral-600'}`}>{isValido ? ovrGeral : '--'}</span>
                 </div>
                 <div className="space-y-2 pt-2 border-t border-neutral-800/50">
                   <div>
                     <div className="flex justify-between text-xs font-bold mb-1">
-                      <span className="text-blue-400">Ataque</span>
+                      <span className="text-fifa-red">Ataque</span>
                       <span className="text-white">{ovrAtaque}</span>
                     </div>
                     <div className="w-full bg-neutral-950 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-blue-500 h-full rounded-full transition-all" style={{ width: `${Math.min(100, ovrAtaque)}%` }}></div>
+                      <div className="bg-fifa-red h-full rounded-full transition-all" style={{ width: `${Math.min(100, ovrAtaque)}%` }}></div>
                     </div>
                   </div>
                   <div>
                     <div className="flex justify-between text-xs font-bold mb-1">
-                      <span className="text-green-400">Meio-Campo</span>
+                      <span className="text-fifa-green">Meio-Campo</span>
                       <span className="text-white">{ovrMeio}</span>
                     </div>
                     <div className="w-full bg-neutral-950 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-green-500 h-full rounded-full transition-all" style={{ width: `${Math.min(100, ovrMeio)}%` }}></div>
+                      <div className="bg-fifa-green h-full rounded-full transition-all" style={{ width: `${Math.min(100, ovrMeio)}%` }}></div>
                     </div>
                   </div>
                   <div>
                     <div className="flex justify-between text-xs font-bold mb-1">
-                      <span className="text-orange-400">Defesa</span>
+                      <span className="text-fifa-blue">Defesa</span>
                       <span className="text-white">{ovrDefesa}</span>
                     </div>
                     <div className="w-full bg-neutral-950 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-orange-500 h-full rounded-full transition-all" style={{ width: `${Math.min(100, ovrDefesa)}%` }}></div>
+                      <div className="bg-fifa-blue h-full rounded-full transition-all" style={{ width: `${Math.min(100, ovrDefesa)}%` }}></div>
                     </div>
-                  </div>
+                  </div>,
                 </div>
               </div>
               {!isValido && (
-                <div className="mt-6 p-3 bg-red-950/30 border border-red-900/50 rounded-lg text-center">
-                  <p className="text-[10px] text-red-500 font-bold uppercase tracking-widest">Escalação Incompleta</p>
+                <div className="mt-6 p-3 bg-fifa-red/10 border border-fifa-red/30 rounded-lg text-center">
+                  <p className="text-[10px] text-fifa-red font-bold uppercase tracking-widest">
+                    {titularesIds.includes(null) ? "Escalação Incompleta" : "Remova atletas inaptos (DM/Suspensos) da titularidade"}
+                  </p>
                 </div>
               )}
             </div>
@@ -276,15 +283,15 @@ export default function Dashboard() {
               <h3 className="text-neutral-500 font-black uppercase tracking-widest text-xs border-b border-neutral-800 pb-2 mb-4">Plantel Atual</h3>
               <div className="flex justify-between items-center mb-2">
                 <span className="text-sm font-bold text-neutral-400">Atletas Aptos</span>
-                <span className="text-sm font-black text-cyan-400">{reservas.filter(r => !r.statusFisico?.lesionado && !r.statusFisico?.suspenso).length}</span>
+                <span className="text-sm font-black text-fifa-green">{reservas.filter(r => !r.statusFisico?.lesionado && !r.statusFisico?.suspenso).length}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm font-bold text-neutral-400">Dpto. Médico (DM)</span>
-                <span className="text-sm font-black text-orange-500">{elenco.filter(r => r.statusFisico?.lesionado).length}</span>
+                <span className="text-sm font-black text-fifa-blue">{elenco.filter(r => r.statusFisico?.lesionado).length}</span>
               </div>
               <div className="flex justify-between items-center mt-2">
                 <span className="text-sm font-bold text-neutral-400">Suspensos</span>
-                <span className="text-sm font-black text-red-500">{elenco.filter(r => r.statusFisico?.suspenso).length}</span>
+                <span className="text-sm font-black text-fifa-red">{elenco.filter(r => r.statusFisico?.suspenso).length}</span>
               </div>
             </div>
           </div>

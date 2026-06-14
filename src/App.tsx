@@ -38,10 +38,10 @@ const AdminProtegido = () => {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center font-sans p-4">
-      <div className="bg-neutral-900 p-8 rounded-xl border border-neutral-800 shadow-2xl w-full max-w-sm">
+    <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center font-fifa p-4">
+      <div className="bg-neutral-900 p-8 rounded-xl border border-neutral-800 shadow-[0_0_30px_rgba(42,57,141,0.15)] w-full max-w-sm">
         <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-2 text-center">Acesso Restrito</h2>
-        <p className="text-xs text-neutral-500 uppercase font-bold tracking-widest mb-8 text-center">Painel da CBF</p>
+        <p className="text-xs text-fifa-blue uppercase font-bold tracking-widest mb-8 text-center">Painel da CBF</p>
         
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
           <input 
@@ -49,13 +49,13 @@ const AdminProtegido = () => {
             value={senha} 
             onChange={(e) => setSenha(e.target.value)} 
             placeholder="Digite a Senha" 
-            className="w-full bg-neutral-950 border border-neutral-800 p-4 rounded-xl text-yellow-500 font-black text-center tracking-[0.5em] focus:outline-none focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 transition-colors" 
+            className="w-full bg-neutral-950 border border-neutral-800 p-4 rounded-xl text-fifa-blue font-black text-center tracking-[0.5em] focus:outline-none focus:border-fifa-blue focus:ring-1 focus:ring-fifa-blue transition-colors" 
             autoFocus 
           />
-          {erro && <p className="text-orange-500 text-xs font-bold uppercase tracking-widest text-center mt-1">{erro}</p>}
+          {erro && <p className="text-fifa-red text-xs font-bold uppercase tracking-widest text-center mt-1">{erro}</p>}
           <button 
             type="submit" 
-            className="w-full bg-yellow-500 hover:bg-yellow-400 text-neutral-950 font-black uppercase tracking-widest py-4 rounded-xl transition-colors shadow-lg mt-2"
+            className="w-full bg-fifa-blue hover:bg-opacity-80 text-white font-black uppercase tracking-widest py-4 rounded-xl transition-colors shadow-lg mt-2 shadow-fifa-blue/30"
           >
             Destravar Painel
           </button>
@@ -87,9 +87,9 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="h-screen bg-neutral-950 flex flex-col items-center justify-center font-sans">
-        <div className="w-12 h-12 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-yellow-400 font-black tracking-widest uppercase animate-pulse">
+      <div className="h-screen bg-neutral-950 flex flex-col items-center justify-center font-fifa">
+        <div className="w-12 h-12 border-4 border-fifa-green border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-fifa-green font-black tracking-widest uppercase animate-pulse">
           Conectando ao Servidor...
         </p>
       </div>

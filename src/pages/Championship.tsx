@@ -19,9 +19,9 @@ export default function Championship() {
 
   if (!gameState || !gameState.teams || gameState.teams.length === 0 || !gameState.schedule || gameState.schedule.length === 0) {
     return (
-      <div className="h-screen bg-neutral-950 flex flex-col items-center justify-center font-sans text-center px-4">
-        <div className="w-12 h-12 border-4 border-yellow-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-yellow-400 font-black tracking-widest uppercase animate-pulse mb-2">Aguardando o Sorteio...</p>
+      <div className="h-screen bg-neutral-950 flex flex-col items-center justify-center font-fifa text-center px-4">
+        <div className="w-12 h-12 border-4 border-fifa-green border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-fifa-green font-black tracking-widest uppercase animate-pulse mb-2">Aguardando o Sorteio...</p>
         <p className="text-neutral-500 text-xs font-bold uppercase tracking-widest">A CBF está gerando o Calendário de Jogos.</p>
       </div>
     );
@@ -71,31 +71,31 @@ export default function Championship() {
     const topArtilheiros = Object.values(artilheirosMap).sort((a, b) => b.gols - a.gols).slice(0, 5);
 
     return (
-      <div className="min-h-screen bg-neutral-950 text-white font-sans overflow-x-hidden pb-16">
+      <div className="min-h-screen bg-neutral-950 text-neutral-200 p-4 md:p-8 flex flex-col font-fifa">
         <div className="max-w-7xl mx-auto p-4 md:p-8">
           
           <div className="text-center mb-12 mt-8">
-            <h1 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-white drop-shadow-xl">Fim de <span className="text-yellow-500">Temporada</span></h1>
-            <p className="text-cyan-400 font-bold uppercase tracking-widest mt-2 animate-pulse">A Glória Eterna do Campeonato Brasileiro</p>
+            <h1 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-white drop-shadow-xl">Fim de <span className="text-fifa-green">Temporada</span></h1>
+            <p className="text-fifa-blue font-bold uppercase tracking-widest mt-2 animate-pulse">A Glória Eterna do Campeonato</p>
           </div>
 
           {campeao && (
-            <div className="bg-linear-to-b from-yellow-600 to-yellow-900 border-2 border-yellow-400 p-8 md:p-12 rounded-3xl shadow-[0_0_80px_rgba(234,179,8,0.2)] max-w-3xl w-full mx-auto text-center relative overflow-hidden mb-16 animate-fade-in">
+            <div className="bg-linear-to-br from-neutral-900 via-fifa-blue/40 to-fifa-green/40 border-2 border-fifa-green p-8 md:p-12 rounded-3xl shadow-[0_0_80px_rgba(60,172,59,0.3)] max-w-3xl w-full mx-auto text-center relative overflow-hidden mb-16 animate-fade-in">
               <span className="text-8xl absolute -top-4 -right-4 opacity-20">🏆</span>
               <span className="text-8xl absolute -bottom-4 -left-4 opacity-20">🏆</span>
-              <h2 className="text-xl md:text-2xl font-black uppercase text-yellow-200 tracking-widest mb-4">O Grande Campeão</h2>
+              <h2 className="text-xl md:text-2xl font-black uppercase text-fifa-green tracking-widest mb-4">O Grande Campeão</h2>
               <h3 className="text-4xl md:text-7xl font-black uppercase tracking-tighter text-white mb-4 drop-shadow-md">{getNomeClube(campeao.id)}</h3>
               <div className="flex items-center justify-center gap-6 mt-6">
                 <div className="bg-yellow-950/40 p-4 rounded-xl border border-yellow-500/30">
-                  <p className="text-xs text-yellow-400 uppercase font-black tracking-widest">Campanha</p>
+                  <p className="text-xs text-fifa-green uppercase font-black tracking-widest">Campanha</p>
                   <p className="text-2xl font-black text-white">{campeao.pts} PTS</p>
                 </div>
                 <div className="bg-yellow-950/40 p-4 rounded-xl border border-yellow-500/30">
-                  <p className="text-xs text-yellow-400 uppercase font-black tracking-widest">Prêmio de Temporada</p>
+                  <p className="text-xs text-fifa-green uppercase font-black tracking-widest">Prêmio de Temporada</p>
                   <p className="text-2xl font-black text-cyan-300">+{calcularPontosTemporada(0)} XP</p>
                 </div>
               </div>
-              {campeao.id === currentUserUid && <p className="text-neutral-900 font-black tracking-widest uppercase bg-yellow-400 py-3 rounded-lg mt-8 shadow-xl">Você escreveu o seu nome na história!</p>}
+              {campeao.id === currentUserUid && <p className="text-white font-black tracking-widest uppercase bg-fifa-green py-3 rounded-lg mt-8 shadow-[0_0_20px_rgba(60,172,59,0.4)]">Você escreveu o seu nome na história!</p>}
             </div>
           )}
 
@@ -113,7 +113,7 @@ export default function Championship() {
                         <span className="font-bold text-white uppercase tracking-tighter text-sm md:text-base">{artilheiro.nome}</span>
                       </div>
                       <div className="bg-neutral-900 px-3 py-1 rounded border border-neutral-700">
-                        <span className="font-black text-yellow-400">{artilheiro.gols}</span> <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">Gols</span>
+                        <span className="font-black text-fifa-green">{artilheiro.gols}</span> <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">Gols</span>
                       </div>
                     </li>
                   ))}
@@ -143,7 +143,7 @@ export default function Championship() {
                         <td className={`py-3 text-center font-black ${index < 4 ? 'text-cyan-400' : index < 6 ? 'text-blue-400' : index >= 6 && index <= 11 ? 'text-green-400' : index > 15 ? 'text-orange-500' : 'text-neutral-500'}`}>
                           {index + 1}
                         </td>
-                        <td className={`py-3 font-black uppercase tracking-tighter truncate max-w-37.5 ${time.id === currentUserUid ? 'text-yellow-400' : (isUser ? 'text-white' : 'text-neutral-400')}`}>
+                        <td className={`py-3 font-black uppercase tracking-tighter truncate max-w-37.5 ${time.id === currentUserUid ? 'text-fifa-green' : (isUser ? 'text-white' : 'text-neutral-400')}`}>
                           {getNomeClube(time.id)}
                         </td>
                         <td className="py-3 text-center font-black text-white bg-neutral-950/50 rounded">{time.pts}</td>
@@ -185,7 +185,7 @@ export default function Championship() {
                   setResgatando(false);
                 }
               }} 
-              className="px-10 py-4 bg-yellow-500 hover:bg-yellow-400 text-neutral-950 font-black uppercase tracking-widest rounded-xl transition-all shadow-[0_0_20px_rgba(250,204,21,0.4)] disabled:opacity-50"
+              className="px-10 py-4 bg-fifa-green hover:bg-opacity-90 text-white font-black uppercase tracking-widest rounded-xl transition-all shadow-[0_0_20px_rgba(60,172,59,0.4)] disabled:opacity-50"
             >
               {resgatando ? 'Salvando...' : 'Resgatar XP e Voltar ao CT'}
             </button>
@@ -221,7 +221,7 @@ export default function Championship() {
           </p>
         </div>
         <div className="flex gap-4">
-          <button onClick={() => navigate('/dashboard')} className="px-6 py-3 bg-neutral-800 hover:bg-neutral-700 text-yellow-400 font-black uppercase tracking-widest rounded-lg transition-colors border border-neutral-700 shadow-lg hidden sm:block">
+          <button onClick={() => navigate('/dashboard')} className="px-6 py-3 bg-neutral-900 hover:bg-neutral-800 text-fifa-gray-light hover:text-white font-black uppercase tracking-widest rounded-lg transition-colors border border-neutral-800 shadow-lg hidden sm:block">
             ← Ver Escalação
           </button>
           
@@ -238,7 +238,7 @@ export default function Championship() {
               navigate('/live');
             }} 
             className={`px-6 py-3 font-black uppercase tracking-widest rounded-lg transition-colors shadow-lg 
-              ${isReady ? 'bg-cyan-700 hover:bg-cyan-600 text-white border border-cyan-500 shadow-cyan-900/50' : 'bg-neutral-800 text-neutral-600 cursor-not-allowed border-neutral-700'}`}
+              ${isReady ? 'bg-fifa-red hover:bg-opacity-80 text-white shadow-[0_0_15px_rgba(230,29,37,0.4)]' : 'bg-neutral-800 text-neutral-600 cursor-not-allowed border-transparent'}`}
           >
             📺 Transmissão ao Vivo
           </button>
@@ -267,7 +267,7 @@ export default function Championship() {
             </div>
 
             <div className={`w-full py-4 rounded-xl font-black text-lg uppercase tracking-widest border-2 transition-all
-              ${isReady ? 'bg-cyan-900/20 border-cyan-500/50 text-cyan-400' : 'bg-orange-900/20 border-orange-500/50 text-orange-500'}`}>
+              ${isReady ? 'bg-fifa-green/20 border-fifa-green text-fifa-green shadow-[0_0_15px_rgba(60,172,59,0.2)]' : 'bg-fifa-red/20 border-fifa-red text-fifa-red'}`}>
               {isReady ? `VOCÊ ESTÁ PRONTO! CLIQUE EM "TRANSMISSÃO" PARA IR AO ESTÁDIO.` : 'VOCÊ AINDA NÃO DEU CHECK NO VESTIÁRIO!'}
             </div>
           </div>
@@ -277,9 +277,9 @@ export default function Championship() {
               <h3 className="text-yellow-500 font-black mb-4 uppercase text-xs tracking-widest border-b border-neutral-800 pb-2">Resultado da Rodada Anterior</h3>
               <div className="flex justify-center items-center gap-4 text-3xl font-black text-white mb-4 bg-neutral-950 py-4 rounded-xl border border-neutral-800 shadow-inner">
                 <div className="text-right flex-1 text-lg md:text-xl text-neutral-400 uppercase tracking-tighter truncate">{getNomeClube(meuUltimoJogo.homeId)}</div>
-                <span className={meuUltimoJogo.homeScore > (meuUltimoJogo.awayScore || 0) ? "text-yellow-400" : "text-white"}>{meuUltimoJogo.homeScore}</span>
+                <span className={meuUltimoJogo.homeScore > (meuUltimoJogo.awayScore || 0) ? "text-fifa-green" : "text-white"}>{meuUltimoJogo.homeScore}</span>
                 <span className="text-neutral-700 text-xl">x</span>
-                <span className={(meuUltimoJogo.awayScore || 0) > meuUltimoJogo.homeScore ? "text-yellow-400" : "text-white"}>{meuUltimoJogo.awayScore}</span>
+                <span className={(meuUltimoJogo.awayScore || 0) > meuUltimoJogo.homeScore ? "text-fifa-green" : "text-white"}>{meuUltimoJogo.awayScore}</span>
                 <div className="text-left flex-1 text-lg md:text-xl text-neutral-400 uppercase tracking-tighter truncate">{getNomeClube(meuUltimoJogo.awayId)}</div>
               </div>
             </div>
@@ -304,9 +304,9 @@ export default function Championship() {
                 {gameState.standings?.map((time, index) => {
                   const isUser = gameState.teams?.find(t => t.id === time.id)?.isUser;
                   return (
-                    <tr key={time.id} className={`text-sm border-b border-neutral-800/50 hover:bg-neutral-800 transition-colors ${time.id === currentUserUid ? 'bg-yellow-900/10' : ''}`}>
+                    <tr key={time.id} className={`text-sm border-b border-neutral-800/50 hover:bg-neutral-800 transition-colors ${time.id === currentUserUid ? 'bg-fifa-blue/20' : ''}`}>
                       <td className={`py-4 text-center font-black ${index < 4 ? 'text-cyan-400' : index < 6 ? 'text-blue-400' : index >= 6 && index <= 11 ? 'text-green-400' : index > 15 ? 'text-orange-500' : 'text-neutral-500'}`}>{index + 1}</td>
-                      <td className={`py-4 font-black uppercase tracking-tighter truncate max-w-35 ${time.id === currentUserUid ? 'text-yellow-400' : (isUser ? 'text-white' : 'text-neutral-400')}`}>{getNomeClube(time.id)}</td>
+                      <td className={`py-4 font-black uppercase tracking-tighter truncate max-w-35 ${time.id === currentUserUid ? 'text-fifa-green' : (isUser ? 'text-white' : 'text-neutral-400')}`}>{getNomeClube(time.id)}</td>
                       <td className="py-4 text-center font-black text-white bg-neutral-950/50 rounded">{time.pts}</td>
                       <td className="py-4 text-center text-neutral-400 font-bold">{time.j}</td>
                       <td className="py-4 text-center text-neutral-400 font-bold">{time.v}</td>

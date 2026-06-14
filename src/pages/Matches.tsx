@@ -125,13 +125,29 @@ export default function Matches() {
         const homeTitularesIds = homeDoc.data()?.titularesIds || [];
         const awayTitularesIds = awayDoc.data()?.titularesIds || [];
 
-        const homeTitulares = isHomeUser ? homeElenco.filter((j: Jogador) => homeTitularesIds.includes(j.id)) : homeElenco.slice(0, 11);
-        const awayTitulares = isAwayUser ? awayElenco.filter((j: Jogador) => awayTitularesIds.includes(j.id)) : awayElenco.slice(0, 11);
+        // Garante a ordem dos slots para o Fator P funcionar e não embaralhar a escalação
+        const homeTitulares = isHomeUser 
+          ? homeTitularesIds.map((id: string) => homeElenco.find(j => j.id === id)).filter(Boolean) as Jogador[]
+          : homeElenco.slice(0, 11);
 
-        const safeHomeTitulares = homeTitulares.length > 0 ? homeTitulares : homeElenco.slice(0, 11);
-        const safeAwayTitulares = awayTitulares.length > 0 ? awayTitulares : awayElenco.slice(0, 11);
+        const awayTitulares = isAwayUser 
+          ? awayTitularesIds.map((id: string) => awayElenco.find(j => j.id === id)).filter(Boolean) as Jogador[]
+          : awayElenco.slice(0, 11);
 
-        const resultado = simularPartidaV2(safeHomeTitulares, safeAwayTitulares);
+        // 🚨 TRAVA DE SEGURANÇA QUE IMPEDE O BOTÃO DE CONGELAR
+        if (homeTitulares.length === 0) {
+          throw new Error(`O time mandante (ID: ${jogo.homeId}) não tem jogadores escalados! Se for um jogador real, peça para ele abrir o Vestiário e salvar a escalação.`);
+        }
+        if (awayTitulares.length === 0) {
+          throw new Error(`O time visitante (ID: ${jogo.awayId}) não tem jogadores escalados! Se for um jogador real, peça para ele abrir o Vestiário e salvar a escalação.`);
+        }
+
+        const resultado = simularPartidaV2(homeTitulares, awayTitulares, {
+          isUserA: isHomeUser,
+          isUserB: isAwayUser,
+          rodada: gameState.currentRound
+        });
+
         jogo.homeScore = resultado.golsCasa;
         jogo.awayScore = resultado.golsFora;
         jogo.relatorio = resultado.relatorio;
@@ -321,12 +337,12 @@ export default function Matches() {
   // ==========================================
   if (!simulacaoAoVivo) {
     return (
-      <div className="p-8 bg-neutral-950 min-h-screen flex items-center justify-center text-neutral-200 font-sans">
+      <div className="p-8 bg-neutral-950 min-h-screen flex items-center justify-center text-neutral-200 font-fifa">
         <div className="max-w-xl mx-auto w-full text-center bg-neutral-900 p-10 rounded-2xl border border-neutral-800 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-yellow-500 animate-pulse"></div>
+          <div className="absolute top-0 left-0 w-full h-1 bg-fifa-red animate-pulse"></div>
           
           <h1 className="text-4xl font-black text-white uppercase tracking-tighter mb-4">
-            Transmissão <span className="text-yellow-500">Ao Vivo</span>
+            Transmissão <span className="text-fifa-red">Ao Vivo</span>
           </h1>
           <p className="text-neutral-400 font-bold tracking-widest uppercase mb-4">
             Rodada {gameState.currentRound}
@@ -337,7 +353,7 @@ export default function Matches() {
               <div className="animate-fade-in">
                  <h2 className="text-4xl text-yellow-500 font-black animate-pulse tracking-widest">TODOS PRONTOS!</h2>
                  <p className="text-neutral-400 font-bold uppercase tracking-widest mt-4">O juiz vai apitar o início em</p>
-                 <span className="text-9xl font-black text-cyan-400 mt-6 block">{countdownToStart}</span>
+                 <span className="text-9xl font-black text-fifa-blue mt-6 block">{countdownToStart}</span>
               </div>
             ) : (
               <div className="animate-fade-in">
@@ -364,9 +380,9 @@ export default function Matches() {
   // RENDERIZAÇÃO: MODO TRANSMISSÃO ATIVA (90 MINS)
   // ==========================================
   return (
-    <div className="p-4 md:p-8 bg-neutral-950 min-h-screen text-neutral-200 font-sans flex flex-col">
+    <div className="p-4 md:p-8 bg-neutral-950 min-h-screen text-neutral-200 font-fifa flex flex-col">
       <div className="max-w-6xl mx-auto w-full mb-8 text-center bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-2xl relative overflow-hidden shrink-0">
-        <div className="absolute top-0 left-0 h-1 bg-yellow-500 transition-all duration-700 ease-linear" style={{ width: `${(minuto / 90) * 100}%` }}></div>
+        <div className="absolute top-0 left-0 h-1 bg-linear-to-r from-fifa-green via-fifa-blue to-fifa-red transition-all duration-700 ease-linear" style={{ width: `${(minuto / 90) * 100}%` }}></div>
         
         <h2 className="text-xl font-bold text-red-500 uppercase tracking-widest flex items-center justify-center gap-2 mb-2">
           <span className="w-3 h-3 bg-red-500 rounded-full animate-ping"></span>
@@ -376,7 +392,7 @@ export default function Matches() {
           {minuto}'
         </div>
         {minuto >= 90 && (
-          <button onClick={() => navigate('/championship')} className="mt-6 bg-cyan-600 hover:bg-cyan-500 px-8 py-3 rounded-xl text-white font-black uppercase tracking-widest transition-colors shadow-lg shadow-cyan-900/50">
+          <button onClick={() => navigate('/championship')} className="mt-6 bg-fifa-blue hover:bg-opacity-80 px-8 py-3 rounded-xl text-white font-black uppercase tracking-widest transition-colors shadow-lg shadow-fifa-blue/50">
             Ver Classificação Atualizada
           </button>
         )}
@@ -394,9 +410,9 @@ export default function Matches() {
                   {jogo.nomeTimeA}
                 </span>
                 <div className="flex items-center gap-6 bg-neutral-900 px-8 py-4 rounded-xl border border-neutral-800 shadow-inner">
-                  <span className={`font-black text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsCasaLive > 0 ? 'text-yellow-400 scale-110' : 'text-white'}`}>{jogo.golsCasaLive}</span>
+                  <span className={`font-black text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsCasaLive > 0 ? 'text-fifa-green scale-110' : 'text-white'}`}>{jogo.golsCasaLive}</span>
                   <span className="text-neutral-600 font-black text-3xl">X</span>
-                  <span className={`font-black text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsForaLive > 0 ? 'text-yellow-400 scale-110' : 'text-white'}`}>{jogo.golsForaLive}</span>
+                  <span className={`font-black text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsForaLive > 0 ? 'text-fifa-green scale-110' : 'text-white'}`}>{jogo.golsForaLive}</span>
                 </div>
                 <span className={`font-black uppercase tracking-tighter flex-1 text-left truncate pl-6 text-2xl md:text-3xl ${jogo.timeB === currentUserUid ? 'text-yellow-400' : 'text-neutral-400'}`} title={jogo.nomeTimeB}>
                   {jogo.nomeTimeB}
@@ -425,10 +441,10 @@ export default function Matches() {
                             {ponto.minuto}'
                           </div>
                           <div className="h-1/2 w-full flex items-end">
-                            {isCasa && <div className="w-full bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.6)] rounded-t-sm" style={{ height: `${alturaPercentual}%` }}></div>}
+                            {isCasa && <div className="w-full bg-fifa-green shadow-[0_0_8px_rgba(60,172,59,0.6)] rounded-t-sm" style={{ height: `${alturaPercentual}%` }}></div>}
                           </div>
                           <div className="h-1/2 w-full flex items-start">
-                            {!isCasa && <div className="w-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.6)] rounded-b-sm" style={{ height: `${alturaPercentual}%` }}></div>}
+                            {!isCasa && <div className="w-full bg-fifa-blue shadow-[0_0_8px_rgba(42,57,141,0.6)] rounded-b-sm" style={{ height: `${alturaPercentual}%` }}></div>}
                           </div>
                         </div>
                       );
@@ -444,9 +460,9 @@ export default function Matches() {
                   <div className="space-y-4">
                     {jogo.eventosLive.map((evento, idx) => (
                       <div key={idx} className={`border-l-4 pl-4 py-3 flex items-start gap-4 animate-fade-in
-                        ${evento.tipo === 'GOL' ? 'border-yellow-500 bg-yellow-900/10' : 
-                          evento.tipo === 'CARTAO_VERMELHO' ? 'border-red-500 bg-red-900/10' : 
-                          evento.tipo === 'CARTAO_AMARELO' ? 'border-yellow-200 bg-yellow-900/5' : 'border-cyan-500 bg-cyan-900/5'}`}>
+                        ${evento.tipo === 'GOL' ? 'border-fifa-green bg-fifa-green/10' : 
+                          evento.tipo === 'CARTAO_VERMELHO' ? 'border-fifa-red bg-fifa-red/10' : 
+                          evento.tipo === 'CARTAO_AMARELO' ? 'border-yellow-500 bg-yellow-500/10' : 'border-fifa-blue bg-fifa-blue/10'}`}>
                         <span className="font-black text-white w-12 shrink-0 text-xl">{evento.minuto}'</span>
                         <span className="text-neutral-300 font-medium leading-tight text-lg mt-0.5">{evento.texto}</span>
                       </div>

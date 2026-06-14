@@ -29,13 +29,13 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-neutral-950 font-sans p-4">
+    <div className="min-h-screen flex items-center justify-center bg-neutral-950 font-fifa p-4">
       <div className="bg-neutral-900 p-8 rounded-2xl shadow-2xl w-full max-w-md border border-neutral-800 relative overflow-hidden">
         {/* Detalhe visual de topo */}
-        <div className="absolute top-0 left-0 w-full h-1.5 bg-linear-to-r from-yellow-600 to-yellow-400"></div>
+        <div className="absolute top-0 left-0 w-full h-1.5 bg-linear-to-r from-fifa-green via-fifa-blue to-fifa-red"></div>
 
         <h2 className="text-3xl font-black mb-2 text-center text-white uppercase tracking-tighter mt-2">
-          Foot<span className="text-yellow-500">Draft26</span>
+          Foot<span className="text-fifa-green">Draft26</span>
         </h2>
         <p className="text-center text-xs text-neutral-500 uppercase tracking-widest font-bold mb-8">
           {isLogin ? "Acesso ao Vestiário" : "Inicie sua Jornada"}
@@ -48,7 +48,7 @@ export default function Login() {
               placeholder="E-mail"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-4 rounded-xl bg-neutral-950 border border-neutral-800 focus:outline-none focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 text-white font-bold transition-all placeholder:text-neutral-600"
+              className="w-full p-4 rounded-xl bg-neutral-950 border border-neutral-800 focus:outline-none focus:border-fifa-blue focus:ring-1 focus:ring-fifa-blue text-white font-bold transition-all placeholder:text-neutral-600"
               required
             />
           </div>
@@ -58,7 +58,7 @@ export default function Login() {
               placeholder="Senha (mín. 6 caracteres)"
               value={senha}
               onChange={(e) => setSenha(e.target.value)}
-              className="w-full p-4 rounded-xl bg-neutral-950 border border-neutral-800 focus:outline-none focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500 text-white font-bold transition-all placeholder:text-neutral-600"
+              className="w-full p-4 rounded-xl bg-neutral-950 border border-neutral-800 focus:outline-none focus:border-fifa-blue focus:ring-1 focus:ring-fifa-blue text-white font-bold transition-all placeholder:text-neutral-600"
               required
             />
           </div>
@@ -67,7 +67,7 @@ export default function Login() {
 
           <button 
             type="submit" 
-            className="w-full bg-yellow-500 text-neutral-950 font-black uppercase tracking-widest px-6 py-4 rounded-xl mt-4 hover:bg-yellow-400 transition-all shadow-[0_0_15px_rgba(250,204,21,0.2)]"
+            className="w-full bg-fifa-blue text-white font-black uppercase tracking-widest px-6 py-4 rounded-xl mt-4 hover:bg-opacity-90 transition-all shadow-[0_0_15px_rgba(42,57,141,0.4)]"
           >
             {isLogin ? "Entrar na Conta" : "Finalizar Cadastro"}
           </button>
@@ -78,7 +78,7 @@ export default function Login() {
           <button 
             type="button"
             onClick={() => setIsLogin(!isLogin)} 
-            className="text-cyan-400 hover:text-cyan-300 transition-colors ml-1"
+            className="text-fifa-green hover:text-opacity-80 transition-colors ml-1"
           >
             {isLogin ? "Criar Conta" : "Fazer Login"}
           </button>

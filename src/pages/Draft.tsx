@@ -358,18 +358,18 @@ export default function Draft() {
 
   const renderSequenciaDraft = () => (
     <div className="bg-black p-3 flex gap-4 overflow-x-auto border-b border-neutral-800 custom-scrollbar items-center">
-      <span className="text-yellow-500 font-black text-xs uppercase whitespace-nowrap tracking-widest">Ordem do Draft:</span>
+      <span className="text-fifa-blue font-black text-xs uppercase whitespace-nowrap tracking-widest">Ordem do Draft:</span>
       {gameState?.draftOrder?.map((uid, idx) => {
         const isVezDeste = uid === gameState.draftTurnUid;
         const nomeClube = mapaUsuarios[uid] || "Desconhecido";
         return (
           <div key={uid} className={`flex items-center gap-2 px-3 py-1 rounded-full whitespace-nowrap text-sm font-bold border transition-all
-            ${isVezDeste ? 'bg-yellow-500/20 border-yellow-400 text-yellow-400 shadow-[0_0_10px_rgba(250,204,21,0.2)]' : 
+            ${isVezDeste ? 'bg-fifa-green/20 border-fifa-green text-fifa-green shadow-[0_0_10px_rgba(60,172,59,0.3)]' : 
               uid === currentUserUid ? 'bg-neutral-800 border-neutral-600 text-neutral-300' : 
               'bg-neutral-900 border-neutral-800 text-neutral-500'}`}>
             <span>{idx + 1}º</span>
             <span>{nomeClube}</span>
-            {isVezDeste && <span className="text-xs animate-pulse">⏱</span>}
+            {isVezDeste && <span className="text-xs animate-pulse text-fifa-red">⏱</span>}
           </div>
         );
       })}
@@ -377,7 +377,7 @@ export default function Draft() {
   );
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-200 flex flex-col font-sans">
+    <div className="min-h-screen bg-neutral-950 text-neutral-200 flex flex-col font-fifa">
       {renderSequenciaDraft()}
 
       <div className="max-w-7xl mx-auto flex flex-col lg:flex-row gap-8 w-full p-4 md:p-8 flex-1 overflow-hidden">
@@ -436,9 +436,9 @@ export default function Draft() {
               const isSelecionado = escolhasDaRodada.some(j => j.id === jogador.id);
               const isDisabled = !isMyTurn || isIndisponivel || (!isSelecionado && (!podeEscolherMais(jogador.posicao) || escolhasDaRodada.length >= picksObrigatorios));
 
-              let bgClass = 'bg-neutral-900 border-neutral-700 hover:border-yellow-500 hover:bg-neutral-800 shadow-xl cursor-pointer';
+              let bgClass = 'bg-neutral-900 border-neutral-700 hover:border-fifa-blue hover:bg-neutral-800 shadow-xl cursor-pointer';
               if (isIndisponivel) bgClass = 'bg-neutral-950/80 border-neutral-900 opacity-60 cursor-not-allowed grayscale';
-              else if (isSelecionado) bgClass = 'bg-yellow-900/20 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.15)]';
+              else if (isSelecionado) bgClass = 'bg-fifa-green/20 border-fifa-green shadow-[0_0_15px_rgba(60,172,59,0.3)]';
               else if (isDisabled && isMyTurn) bgClass = 'bg-neutral-950 border-neutral-900 opacity-40 cursor-not-allowed grayscale';
               else if (!isMyTurn) bgClass = 'bg-neutral-900 border-neutral-800 cursor-default';
 
@@ -449,14 +449,14 @@ export default function Draft() {
                   disabled={isDisabled}
                   className={`p-3 md:p-4 rounded-xl border-2 flex flex-row items-center justify-between transition-all relative overflow-hidden shrink-0 ${bgClass}`}
                 >
-                  <div className={`absolute top-0 left-0 w-1 h-full ${isIndisponivel ? 'bg-red-900/50' : 'bg-neutral-800'}`}></div>
+                  <div className={`absolute top-0 left-0 w-1 h-full ${isIndisponivel ? 'bg-fifa-red/50' : 'bg-neutral-800'}`}></div>
 
                   <div className="flex items-center gap-4 pl-2">
-                    <span className={`w-12 text-center text-[10px] sm:text-xs px-2 py-2 rounded font-black tracking-widest ${isIndisponivel ? 'bg-neutral-900 text-neutral-600 border-neutral-800' : 'bg-neutral-950 text-cyan-400 border-neutral-800'}`}>
+                    <span className={`w-12 text-center text-[10px] sm:text-xs px-2 py-2 rounded font-black tracking-widest ${isIndisponivel ? 'bg-neutral-900 text-neutral-600 border-neutral-800' : 'bg-fifa-blue text-white border-transparent'}`}>
                       {jogador.posicao}
                     </span>
                     <div className="text-left">
-                      <p className={`font-black text-base sm:text-lg truncate ${isSelecionado ? 'text-yellow-400' : isIndisponivel ? 'text-neutral-500 line-through' : 'text-white'}`}>
+                      <p className={`font-black text-base sm:text-lg truncate ${isSelecionado ? 'text-fifa-green' : isIndisponivel ? 'text-neutral-500 line-through' : 'text-white'}`}>
                         {jogador.nome}
                       </p>
                       {isIndisponivel && (
@@ -496,7 +496,7 @@ export default function Draft() {
               <button 
                 onClick={confirmarRodadaManual}
                 disabled={escolhasDaRodada.length !== picksObrigatorios}
-                className="w-full sm:w-2/3 py-4 rounded-xl font-black text-lg uppercase tracking-widest transition-all disabled:opacity-50 disabled:bg-neutral-900 disabled:text-neutral-600 bg-yellow-500 text-neutral-950 hover:bg-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.2)]"
+                className="w-full sm:w-2/3 py-4 rounded-xl font-black text-lg uppercase tracking-widest transition-all disabled:opacity-50 disabled:bg-neutral-900 disabled:text-neutral-600 bg-fifa-green text-white hover:bg-opacity-90 shadow-[0_0_15px_rgba(60,172,59,0.4)]"
               >
                 {escolhasDaRodada.length === picksObrigatorios 
                   ? (picksObrigatorios === 0 ? `Pular Vez (Sem Opções)` : `Confirmar e Passar a Vez`)

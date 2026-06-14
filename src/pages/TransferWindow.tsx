@@ -243,14 +243,14 @@ export default function TransferWindow({ uid }: { uid: string }) {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-950 p-8 text-white">
-      <h1 className="text-3xl font-black uppercase text-purple-500 mb-2">Janela de Transferências</h1>
+    <div className="min-h-screen bg-neutral-950 p-8 text-white font-fifa">
+      <h1 className="text-3xl font-black uppercase text-fifa-blue mb-2">Janela de Transferências</h1>
       <p className="text-neutral-400 mb-8 font-bold">
         Trocas Disponíveis: <span className="text-white text-xl">{trocasRestantes}</span>
       </p>
 
       {/* BANNER DE TURNO */}
-      <div className={`p-4 rounded-xl font-black uppercase tracking-widest text-center mb-8 border-2 ${isMinhaVez ? 'bg-purple-900 border-purple-500 text-white animate-pulse' : 'bg-neutral-900 border-neutral-800 text-neutral-500'}`}>
+      <div className={`p-4 rounded-xl font-black uppercase tracking-widest text-center mb-8 border-2 transition-all ${isMinhaVez ? 'bg-fifa-green/20 border-fifa-green text-fifa-green animate-pulse shadow-[0_0_15px_rgba(60,172,59,0.2)]' : 'bg-neutral-900 border-neutral-800 text-neutral-500'}`}>
         {isMinhaVez ? '⏱️ É A SUA VEZ! ESCOLHA QUEM ENTRA E QUEM SAI.' : 'Aguarde a sua vez...'}
       </div>
 
@@ -261,7 +261,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
             <button 
               disabled={jogadoresParaSair.length === 0}
               onClick={travarSaidasEGerarOpcoes}
-              className="px-6 py-3 bg-yellow-500 hover:bg-yellow-400 disabled:opacity-50 font-black uppercase tracking-widest rounded shadow-[0_0_15px_rgba(234,179,8,0.4)] transition-colors text-neutral-950"
+              className="px-6 py-3 bg-fifa-blue hover:bg-opacity-80 disabled:opacity-50 font-black uppercase tracking-widest rounded shadow-[0_0_15px_rgba(42,57,141,0.4)] transition-colors text-white"
             >
               Confirmar {jogadoresParaSair.length} Saída(s) e Ver Opções 🔒
             </button>
@@ -271,7 +271,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
             <button 
               disabled={!todasVagasPreenchidas || carregando}
               onClick={confirmarTrocasEmMassa}
-              className="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 font-black uppercase tracking-widest rounded shadow-lg transition-colors"
+              className="px-6 py-3 bg-fifa-green hover:bg-opacity-80 disabled:opacity-50 font-black uppercase tracking-widest rounded shadow-[0_0_15px_rgba(60,172,59,0.4)] transition-colors text-white"
             >
               {carregando ? 'A Processar...' : `Efetuar ${substituicoes.length} Transferência(s) ♻️`}
             </button>
@@ -279,7 +279,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
           
           <button 
             onClick={encerrarMinhasTrocas}
-            className="px-6 py-3 bg-red-950 hover:bg-red-900 border border-red-800 font-bold uppercase rounded transition-colors text-red-400"
+            className="px-6 py-3 bg-neutral-900 hover:bg-fifa-red/20 border border-neutral-800 hover:border-fifa-red/50 font-bold uppercase rounded transition-colors text-fifa-red"
           >
             Encerrar Minha Janela (Pular)
           </button>
@@ -301,7 +301,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
                 <div 
                   key={jogador.id} 
                   onClick={() => toggleJogadorSaida(jogador)}
-                  className={`p-3 rounded border cursor-pointer transition-all ${isSelecionado ? 'border-red-500 bg-red-950/40 shadow-[inset_0_0_10px_rgba(239,68,68,0.2)]' : 'border-neutral-800 bg-neutral-950 hover:border-red-500/50'}`}
+                  className={`p-3 rounded border cursor-pointer transition-all ${isSelecionado ? 'border-fifa-red bg-fifa-red/20 shadow-[inset_0_0_10px_rgba(230,29,37,0.2)]' : 'border-neutral-800 bg-neutral-950 hover:border-fifa-red/50'}`}
                 >
                   <div className="flex justify-between items-center">
                     <p className="font-bold">{jogador.nome}</p>
@@ -345,7 +345,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
                         <div 
                           key={opcao.id}
                           onClick={() => isMinhaVez && selecionarEntrada(index, opcao)}
-                          className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${pacote.selecionado?.id === opcao.id ? 'border-green-500 bg-green-950/40 shadow-[0_0_15px_rgba(34,197,94,0.15)]' : 'border-neutral-800 bg-neutral-900 hover:border-green-500/50'}`}
+                          className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${pacote.selecionado?.id === opcao.id ? 'border-fifa-green bg-fifa-green/20 shadow-[0_0_15px_rgba(60,172,59,0.2)]' : 'border-neutral-800 bg-neutral-900 hover:border-fifa-green/50'}`}
                         >
                           <p className="font-black text-lg">{opcao.nome}</p>
                           <p className="text-[10px] text-cyan-400 uppercase font-black tracking-widest mb-2">{opcao.posicao}</p>

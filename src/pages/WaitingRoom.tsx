@@ -50,7 +50,7 @@ export default function WaitingRoom() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 flex flex-col items-center p-4 md:p-8 font-sans">
+    <div className="min-h-screen bg-neutral-950 flex flex-col items-center p-4 md:p-8 font-fifa">
       <div className="bg-neutral-900 p-8 rounded-xl shadow-2xl border border-neutral-800 w-full max-w-md mb-8">
         {!registroPronto ? (
           <div className="animate-fade-in">
@@ -58,8 +58,8 @@ export default function WaitingRoom() {
             <p className="text-neutral-400 text-center mb-8 text-sm">A primeira etapa para dominar o campeonato.</p>
             <div className="space-y-4">
               <div>
-                <label className="block text-cyan-400 text-xs uppercase tracking-widest font-bold mb-2">Nome do Time</label>
-                <input type="text" value={nomeTime} onChange={e => setNomeTime(e.target.value)} placeholder="Ex: Galáticos FC" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg p-3 text-white focus:outline-none focus:border-yellow-500 transition-colors"/>
+                <label className="block text-fifa-blue text-xs uppercase tracking-widest font-bold mb-2">Nome do Time</label>
+                <input type="text" value={nomeTime} onChange={e => setNomeTime(e.target.value)} placeholder="Ex: Galáticos FC" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg p-3 text-white focus:outline-none focus:border-fifa-blue transition-colors"/>
               </div>
               <div>
                 <label className="block text-cyan-400 text-xs uppercase tracking-widest font-bold mb-2">Nome do Técnico</label>
@@ -67,7 +67,7 @@ export default function WaitingRoom() {
               </div>
             </div>
             {erro && <p className="text-orange-500 text-sm mt-4 text-center font-bold">{erro}</p>}
-            <button onClick={confirmarRegistro} disabled={salvando} className="w-full mt-8 bg-yellow-500 hover:bg-yellow-400 text-neutral-950 uppercase tracking-widest font-black py-4 rounded-lg transition-colors disabled:opacity-50 shadow-[0_0_15px_rgba(250,204,21,0.2)]">
+            <button onClick={confirmarRegistro} disabled={salvando} className="w-full mt-8 bg-fifa-blue hover:bg-opacity-90 text-white uppercase tracking-widest font-black py-4 rounded-lg transition-colors disabled:opacity-50 shadow-[0_0_15px_rgba(42,57,141,0.4)]">
               {salvando ? "A REGISTRAR..." : "CONFIRMAR E ENTRAR NA FILA"}
             </button>
           </div>
@@ -84,7 +84,7 @@ export default function WaitingRoom() {
       <div className="w-full max-w-md bg-neutral-900 p-6 rounded-xl border border-neutral-800">
         <h2 className="text-white font-black uppercase tracking-widest mb-4 flex justify-between items-center border-b border-neutral-800 pb-2">
           <span>Times na Sala</span>
-          <span className="bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-2 py-1 rounded text-xs">{timesRegistrados.length} Conectados</span>
+          <span className="bg-fifa-blue/20 text-fifa-blue border border-fifa-blue px-2 py-1 rounded text-xs font-bold">{timesRegistrados.length} Conectados</span>
         </h2>
         <ul className="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-2">
           {timesRegistrados.map((time, idx) => {
@@ -93,16 +93,16 @@ export default function WaitingRoom() {
             
             return (
               <li key={idx} className={`bg-neutral-950 p-3 rounded-lg border flex flex-col transition-all
-                ${isMe ? 'border-yellow-500 bg-yellow-500/5' : 'border-neutral-800'}`}>
+                ${isMe ? 'border-fifa-green bg-fifa-green/5' : 'border-neutral-800'}`}>
                 <div className="flex justify-between items-center">
-                  <span className={`font-black text-lg ${isMe ? 'text-yellow-400' : 'text-white'}`}>{time.nome}</span>
+                  <span className={`font-black text-lg ${isMe ? 'text-fifa-green' : 'text-white'}`}>{time.nome}</span>
                   {isMe && (
-                    <span className="text-[10px] bg-yellow-500 text-neutral-950 px-2 py-1 rounded font-black tracking-widest uppercase shadow-sm">
+                    <span className="text-[10px] bg-fifa-green text-white px-2 py-1 rounded font-black tracking-widest uppercase shadow-sm">
                       Você
                     </span>
                   )}
                 </div>
-                <span className="text-xs text-cyan-400 font-bold uppercase tracking-wider mt-1">Técnico {time.tecnico}</span>
+                <span className="text-xs text-fifa-gray-light font-bold uppercase tracking-wider mt-1">Técnico {time.tecnico}</span>
               </li>
             );
           })}
