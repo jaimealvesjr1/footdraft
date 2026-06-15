@@ -6,7 +6,6 @@ import { auth, db } from "./services/firebase";
 import { type GamePhase } from "./types";
 import { Toaster } from 'react-hot-toast';
 
-// Importações das páginas e componentes
 import Login from "./pages/Login";
 import Draft from "./pages/Draft";
 import TransferWindow from "./pages/TransferWindow";
@@ -14,13 +13,10 @@ import Dashboard from "./pages/Dashboard";
 import Championship from "./pages/Championship";
 import Admin from './pages/Admin';
 import WaitingRoom from './pages/WaitingRoom';
-import Matches from './pages/Matches'; // <- Adicionamos a importação da página nova aqui
+import Matches from './pages/Matches';
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 
-// ==========================================
-// BARREIRA DE SEGURANÇA DO ADMIN
-// ==========================================
 const AdminProtegido = () => {
   const [autenticado, setAutenticado] = useState(false);
   const [senha, setSenha] = useState("");
@@ -119,15 +115,15 @@ export default function App() {
           toastOptions={{
             duration: 3000,
             style: {
-              background: '#1a1a1a', // Fundo escuro combinando com seu design
-              color: '#fff',         // Texto branco
+              background: '#1a1a1a', 
+              color: '#fff',         
               border: '1px solid #333',
             },
             success: {
-              iconTheme: { primary: '#3CAC3B', secondary: '#fff' }, // Verde do seu projeto
+              iconTheme: { primary: '#3CAC3B', secondary: '#fff' }, 
             },
             error: {
-              iconTheme: { primary: '#FF3333', secondary: '#fff' }, // Vermelho do seu projeto
+              iconTheme: { primary: '#FF3333', secondary: '#fff' }, 
             },
           }}
         />

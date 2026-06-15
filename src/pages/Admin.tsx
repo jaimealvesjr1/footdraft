@@ -1,9 +1,17 @@
 import { useState, useEffect } from 'react';
 import { type Clube, type GamePhase, type GameState, type Posicao, type Jogador } from '../types'; 
-import { doc, setDoc, deleteDoc, onSnapshot, getDocs, collection, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, onSnapshot, getDocs, collection, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '../services/firebase'; 
 import { simularPartidaV2, escalarBot } from '../services/matchEngine';
 import toast from 'react-hot-toast';
+
+type Formacao = "4-3-3" | "4-4-2" | "3-5-2" | "4-5-1";
+const REGRAS_FORMACAO: Record<Formacao, { DEF: number; MEI: number; ATA: number }> = {
+  "4-3-3": { DEF: 4, MEI: 3, ATA: 3 },
+  "4-4-2": { DEF: 4, MEI: 4, ATA: 2 },
+  "3-5-2": { DEF: 3, MEI: 5, ATA: 2 },
+  "4-5-1": { DEF: 4, MEI: 5, ATA: 1 },
+};
 
 const confirmarAcao = (mensagem: string): Promise<boolean> => {
   return new Promise((resolve) => {
@@ -34,6 +42,8 @@ export default function Admin() {
   const [clubeEmEdicao, setClubeEmEdicao] = useState<Clube | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [tamanhoCampeonato, setTamanhoCampeonato] = useState<number>(20);
+  
+  const [jogadorDesistenteUid, setJogadorDesistenteUid] = useState<string>('');
 
   useEffect(() => {
     const unsubGame = onSnapshot(doc(db, "game", "state"), (docSnap) => {
@@ -61,7 +71,9 @@ export default function Admin() {
     try {
       const usersSnap = await getDocs(collection(db, "usuarios"));
       let uidsRegistrados: string[] = [];
-      usersSnap.forEach(doc => { if (doc.data().nomeTime) uidsRegistrados.push(doc.id); });
+      usersSnap.forEach(doc => { 
+          if (doc.data().nomeTime && doc.data().inscrito) uidsRegistrados.push(doc.id); 
+      });
       if (uidsRegistrados.length === 0) { toast.error("Nenhum jogador na Sala de Espera!"); return; }
 
       const ordemSorteada = uidsRegistrados.sort(() => Math.random() - 0.5);
@@ -70,11 +82,29 @@ export default function Admin() {
         draftTurnUid: ordemSorteada[0], draftDeadline: Date.now() + (3 * 60 * 1000), playersReady: []
       }, { merge: true });
 
-      toast.success(`Pré-Temporada iniciada com ${ordemSorteada.length} jogadores!`);
+      toast.success(`Pré-Temporada iniciada com ${ordemSorteada.length} jogadores inscritos!`);
     } catch (error) { toast.error("Erro ao iniciar a Pré-Temporada."); }
   };
 
-  const promptParaIA = termoBusca ? `Gere um arquivo JSON com um elenco completo de 18 a 22 jogadores do ${termoBusca}. ATENÇÃO: O 'id' de cada jogador deve ser único e no formato 'nome-time-ano-nome-jogador' (ex: 'cruzeiro-2003-gomes'). REGRAS OBRIGATÓRIAS: 1) A propriedade 'posicao' DEVE conter EXATAMENTE E APENAS uma destas 4 opções: "GOL", "DEF", "MEI" ou "ATA". É estritamente proibido usar ZAG, VOL, LD, LE, SA, etc. Classifique os defensores todos como "DEF" e os meias como "MEI". 2) É ESTRITAMENTE OBRIGATÓRIO incluir pelo menos 2 jogadores com a posição "GOL" (goleiros) para garantir opções no banco de reservas. Siga esta estrutura:\n{\n  "id": "${termoBusca.toLowerCase().replace(/\s+/g, '-')}",\n  "nome": "${termoBusca.replace(/\d+/g, '').trim()}",\n  "ano": ${termoBusca.replace(/\D/g, '') || 2000},\n  "elenco": [\n    { "id": "cruzeiro-2003-gomes", "nome": "Gomes", "posicao": "GOL", "clubeHistorico": "${termoBusca}", "overall": 85, "statusFisico": { "cansaco": 1, "lesionado": false, "suspenso": false }, "temporadasNoClube": 0 }\n  ]\n}` : '';
+  const termoLimpo = termoBusca.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-');
+  const nomeLimpo = termoBusca.replace(/\d+/g, '').trim();
+  const anoLimpo = termoBusca.replace(/\D/g, '') || new Date().getFullYear();
+
+  const promptParaIA = termoBusca ? `Você é um gerador de dados estrito. Retorne APENAS um objeto JSON válido. É EXTREMAMENTE PROIBIDO o uso de blocos de código markdown (como \`\`\`json). Não escreva introduções, retorne o JSON cru.
+Gere um elenco completo (18 a 22 jogadores) do time: "${termoBusca}".
+REGRAS:
+1) A propriedade 'posicao' DEVE conter EXATAMENTE E APENAS uma destas 4 opções: "GOL", "DEF", "MEI" ou "ATA". Converta laterais e zagueiros para "DEF", e volantes para "MEI".
+2) OBRIGATÓRIO incluir pelo menos 2 jogadores com a posição "GOL" (goleiros).
+3) O 'overall' deve ser realista (entre 60 e 95).
+Siga ESTRITAMENTE esta estrutura:
+{
+  "id": "${termoLimpo}",
+  "nome": "${nomeLimpo}",
+  "ano": ${anoLimpo},
+  "elenco": [
+    { "id": "${termoLimpo}-nomedojogador", "nome": "Nome do Jogador", "posicao": "GOL", "clubeHistorico": "${termoBusca}", "overall": 85, "statusFisico": { "cansaco": 1, "lesionado": false, "suspenso": false }, "temporadasNoClube": 0 }
+  ]
+}` : '';
 
   const carregarJson = () => {
     try {
@@ -93,19 +123,44 @@ export default function Admin() {
 
   const salvarClube = async () => {
     if (!clubeEmEdicao) return;
+    
+    // TRAVA DE SEGURANÇA: Verifica integridade mínima do elenco
+    const temGoleiro = clubeEmEdicao.elenco.some(j => j.posicao === 'GOL');
+    if (clubeEmEdicao.elenco.length < 11 || !temGoleiro) {
+      toast.error("O time precisa ter pelo menos 11 jogadores e 1 Goleiro para não quebrar o motor do jogo!");
+      return;
+    }
+
+    // AVISO INTELIGENTE: Verifica se o time editado já está no campeonato rodando
+    const isTimeEmCampo = gameState?.teams?.some(t => t.id === clubeEmEdicao.id && !t.isUser);
+    if (isTimeEmCampo && gameState?.phase !== 'SETUP') {
+      const confirmado = await confirmarAcao(`O time ${clubeEmEdicao.nome} está jogando o campeonato atual! Atualizar o elenco afetará os próximos jogos dele. Continuar?`);
+      if (!confirmado) return;
+    }
+
     setSalvando(true);
     try {
       const nomeCompletoClube = `${clubeEmEdicao.nome} ${clubeEmEdicao.ano}`.trim();
       const clubeSanitizado = {
         ...clubeEmEdicao,
         elenco: clubeEmEdicao.elenco.map(jogador => ({
-          ...jogador, clubeHistorico: nomeCompletoClube, statusFisico: { cansaco: 1, lesionado: false, suspenso: false }
+          ...jogador, 
+          clubeHistorico: nomeCompletoClube, 
+          statusFisico: { cansaco: 1, lesionado: false, suspenso: false }
         }))
       };
+      
       await setDoc(doc(db, "clubes", clubeSanitizado.id), clubeSanitizado);
-      toast.success(`O time ${clubeSanitizado.nome} foi salvo!`);
-      setClubeEmEdicao(null); setJsonImportado(''); setTermoBusca('');
-    } catch (error) { toast.error("Erro ao salvar clube."); } finally { setSalvando(false); }
+      toast.success(`O time ${clubeSanitizado.nome} foi salvo no banco de dados!`);
+      
+      setClubeEmEdicao(null); 
+      setJsonImportado(''); 
+      setTermoBusca('');
+    } catch (error) { 
+      toast.error("Erro ao salvar clube."); 
+    } finally { 
+      setSalvando(false); 
+    }
   };
 
   const excluirClube = async (idClube: string) => {
@@ -122,7 +177,7 @@ export default function Admin() {
       const times: { id: string; nome: string; isUser: boolean }[] = [];
       usersSnap.forEach((docSnap) => {
         const dados = docSnap.data();
-        if (dados.nomeTime) times.push({ id: docSnap.id, nome: String(dados.nomeTime), isUser: true });
+        if (dados.nomeTime && dados.inscrito) times.push({ id: docSnap.id, nome: String(dados.nomeTime), isUser: true });
       });
 
       const botsSnap = await getDocs(collection(db, "clubes"));
@@ -142,6 +197,8 @@ export default function Admin() {
         toast.error(`Tem apenas ${times.length} times disponíveis. Precisa de ${TOTAL_TIMES}. Adicione mais clubes!`);
         return; 
       }
+
+      times.sort(() => Math.random() - 0.5);
 
       const standings = times.map(t => ({ id: t.id, pts: 0, j: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0 }));
       const numRodadasIda = TOTAL_TIMES - 1;
@@ -213,6 +270,11 @@ export default function Admin() {
         return time;
       };
 
+      const totalTeams = (gameState as any).totalTeams || 20;
+      const midSeason = totalTeams - 1;
+      const endSeason = (totalTeams - 1) * 2;
+      const resetarCansaco = rodadaVerdadeira === midSeason;
+
       for (let jogo of jogos) {
         const isHomeUser = (gameState.teams || []).find(t => t.id === jogo.homeId)?.isUser || false;
         const isAwayUser = (gameState.teams || []).find(t => t.id === jogo.awayId)?.isUser || false;
@@ -242,10 +304,6 @@ export default function Admin() {
         jogo.awayScore = resultado.golsFora;
         jogo.relatorio = resultado.relatorio;
         jogo.pressao = resultado.pressao;
-
-        const totalTeams = (gameState as any).totalTeams || 20;
-        const midSeason = totalTeams - 1;
-        const resetarCansaco = rodadaVerdadeira === midSeason;
 
         const processarElenco = (elencoCompleto: Jogador[], titularesIdsValidos: string[], isCasa: boolean) => {
           return elencoCompleto.map((jogador: Jogador) => {
@@ -277,6 +335,8 @@ export default function Admin() {
               } else if (amarelosNaPartida > 0) {
                 status.amarelos += amarelosNaPartida;
                 if (status.amarelos >= 2) { status.suspenso = true; status.amarelos = 0; }
+              } else {
+                status.amarelos = 0;
               }
             } else {
               if (jogador.statusFisico?.lesionado === true) {
@@ -285,6 +345,7 @@ export default function Admin() {
               } else {
                 if (status.cansaco > 1) status.cansaco = Math.max(1, status.cansaco - 2);
               }
+              status.amarelos = 0;
             }
 
             if (resetarCansaco) { status.cansaco = 1; status.lesionado = false; }
@@ -313,10 +374,6 @@ export default function Admin() {
 
       let updatedSchedule = gameState.schedule.map((rodada, index) => index === rodadaIndex ? { jogos: jogos } : rodada);
       
-      const totalTeams = (gameState as any).totalTeams || 20;
-      const midSeason = totalTeams - 1;
-      const endSeason = (totalTeams - 1) * 2;
-      
       let proximaFase = gameState.phase;
       let mensagemAlert = "Rodada Simulada com Sucesso!";
 
@@ -325,7 +382,28 @@ export default function Admin() {
         proximaFase = 'TRANSFER_WINDOW';
       } else if (rodadaVerdadeira === endSeason) {
         proximaFase = 'FINISHED'; 
-        mensagemAlert = "CAMPEONATO ENCERRADO! Rodada final simulada.";
+        mensagemAlert = "CAMPEONATO ENCERRADO! Histórico da temporada foi salvo.";
+        
+        const dataAtual = new Date().toLocaleDateString('pt-BR');
+        const promessasHistorico = novosStandings.map((timeDaTabela, index) => {
+             const isHumano = (gameState.teams || []).find((t:any) => t.id === timeDaTabela.id)?.isUser;
+             if (isHumano) {
+                 const historicoData = {
+                     temporada: dataAtual,
+                     posicao: index + 1,
+                     pontos: timeDaTabela.pts,
+                     vitorias: timeDaTabela.v,
+                     saldo: timeDaTabela.sg,
+                     campeao: index === 0
+                 };
+                 return updateDoc(doc(db, "usuarios", timeDaTabela.id), {
+                     historicoCampanhas: arrayUnion(historicoData),
+                     inscrito: false 
+                 });
+             }
+             return Promise.resolve();
+        });
+        await Promise.all(promessasHistorico);
       }
 
       await updateDoc(doc(db, "game", "state"), {
@@ -337,6 +415,181 @@ export default function Admin() {
     } catch (error) {
       console.error("Erro na Simulação:", error);
       toast.error(`SIMULAÇÃO ABORTADA: ${(error as Error).message}`);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const autoEscalarJogador = async (uid: string) => {
+    if (!uid) {
+        toast.error("Selecione um técnico ausente/desistente primeiro!");
+        return;
+    }
+    setSalvando(true);
+    try {
+        const userRef = doc(db, "usuarios", uid);
+        const userSnap = await getDoc(userRef);
+        if (!userSnap.exists()) throw new Error("Usuário não encontrado.");
+        
+        const userData = userSnap.data();
+        let elenco = userData.elenco || [];
+
+        if (elenco.length < 11) {
+            const clubesSnap = await getDocs(collection(db, "clubes"));
+            let todosJogadores: Jogador[] = [];
+            clubesSnap.forEach(d => {
+                todosJogadores = [...todosJogadores, ...d.data().elenco];
+            });
+            
+            todosJogadores.sort(() => Math.random() - 0.5);
+            
+            const novos: Jogador[] = [];
+            const pegarDaPosicao = (pos: string, qtd: number) => {
+                const disponiveis = todosJogadores.filter(j => j.posicao === pos || j.posicao.includes(pos));
+                novos.push(...disponiveis.slice(0, qtd));
+            };
+            
+            pegarDaPosicao('GOL', 2); pegarDaPosicao('DEF', 6); pegarDaPosicao('MEI', 6); pegarDaPosicao('ATA', 4);
+            elenco = novos.map(j => ({ ...j, statusFisico: { cansaco: 1, lesionado: false, suspenso: false, amarelos: 0 } }));
+        }
+
+        const formacoes = ["4-3-3", "4-4-2", "3-5-2", "4-5-1"] as Formacao[];
+        const formacaoEscolhida = formacoes[Math.floor(Math.random() * formacoes.length)];
+        const regras = REGRAS_FORMACAO[formacaoEscolhida];
+
+        const aptos = elenco.filter((j: any) => !j.statusFisico?.lesionado && !j.statusFisico?.suspenso);
+        const gols = aptos.filter((j: any) => j.posicao === 'GOL').sort((a: any, b: any) => b.overall - a.overall);
+        const defs = aptos.filter((j: any) => j.posicao === 'DEF').sort((a: any, b: any) => b.overall - a.overall);
+        const meis = aptos.filter((j: any) => j.posicao === 'MEI').sort((a: any, b: any) => b.overall - a.overall);
+        const atas = aptos.filter((j: any) => j.posicao === 'ATA').sort((a: any, b: any) => b.overall - a.overall);
+
+        const titulares = [
+            ...(gols.slice(0, 1)),
+            ...(defs.slice(0, regras.DEF)),
+            ...(meis.slice(0, regras.MEI)),
+            ...(atas.slice(0, regras.ATA))
+        ];
+
+        let i = 0;
+        const sobras = aptos.filter((j: any) => !titulares.includes(j)).sort((a: any, b: any) => b.overall - a.overall);
+        while(titulares.length < 11 && i < sobras.length) {
+            titulares.push(sobras[i]);
+            i++;
+        }
+
+        if (titulares.length < 11) throw new Error(`O time ${userData.nomeTime} tem muitos lesionados/suspensos e não consegue preencher 11 vagas.`);
+
+        let lAta: Jogador[] = [], lMei: Jogador[] = [], lDef: Jogador[] = [], lGol: Jogador[] = [];
+        titulares.forEach((t: Jogador) => {
+            if (t.posicao === 'GOL' && lGol.length < 1) lGol.push(t);
+            else if (t.posicao === 'DEF' && lDef.length < regras.DEF) lDef.push(t);
+            else if (t.posicao === 'MEI' && lMei.length < regras.MEI) lMei.push(t);
+            else if (t.posicao === 'ATA' && lAta.length < regras.ATA) lAta.push(t);
+            else {
+                if (lAta.length < regras.ATA) lAta.push(t);
+                else if (lMei.length < regras.MEI) lMei.push(t);
+                else if (lDef.length < regras.DEF) lDef.push(t);
+            }
+        });
+
+        const titularesIds = [...lAta, ...lMei, ...lDef, ...lGol].map(t => t.id);
+
+        await updateDoc(userRef, {
+            elenco,
+            titularesIds,
+            formacao: formacaoEscolhida,
+            elencoPronto: true
+        });
+
+        await updateDoc(doc(db, "game", "state"), {
+            playersReady: arrayUnion(uid)
+        });
+
+        toast.success(`Esquadrão de ${userData.nomeTime} auto-escalado na tática ${formacaoEscolhida}!`);
+        setJogadorDesistenteUid('');
+    } catch (error) {
+        toast.error(`Erro ao auto-escalar: ${(error as Error).message}`);
+    } finally {
+        setSalvando(false);
+    }
+  };
+
+  const pularTurnoAtual = async () => {
+    if (!jogadorDesistenteUid) {
+      toast.error("Selecione um técnico na lista acima primeiro!");
+      return;
+    }
+    if (!gameState || !gameState.draftOrder || gameState.draftOrder.length === 0) {
+      toast.error("Não há nenhum turno em andamento no momento!");
+      return;
+    }
+
+    const confirmado = await confirmarAcao("Remover este técnico da fila de turnos atual?");
+    if (!confirmado) return;
+
+    setSalvando(true);
+    try {
+      const novaOrdem = gameState.draftOrder.filter((uid: string) => uid !== jogadorDesistenteUid);
+
+      if (novaOrdem.length > 0) {
+        await updateDoc(doc(db, "game", "state"), { 
+          draftTurnUid: novaOrdem[0], 
+          draftOrder: novaOrdem 
+        });
+        toast.success("Técnico removido da fila com sucesso!");
+      } else {
+        await updateDoc(doc(db, "game", "state"), { 
+          draftTurnUid: null, 
+          draftOrder: [] 
+        });
+        toast.success("Fila encerrada! Todos já jogaram.");
+      }
+      setJogadorDesistenteUid(''); 
+    } catch (error) {
+      toast.error("Erro ao remover o turno.");
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  // ==========================================
+  // NOVA FUNÇÃO: DEVOLVER JOGADOR À FILA (AFK)
+  // ==========================================
+  const retornarJogadorAFK = async () => {
+    if (!jogadorDesistenteUid) {
+      toast.error("Selecione um técnico na lista acima primeiro!");
+      return;
+    }
+    if (gameState?.phase !== 'PRE_SEASON' && gameState?.phase !== 'TRANSFER_WINDOW') {
+      toast.error("Só é possível alterar a fila no Draft ou Janela de Transferências.");
+      return;
+    }
+
+    const filaAtual = gameState.draftOrder || [];
+    if (filaAtual.includes(jogadorDesistenteUid)) {
+      toast.error("Este técnico JÁ ESTÁ na fila de espera atual!");
+      return;
+    }
+
+    const confirmado = await confirmarAcao("Deseja colocar este técnico de volta no FIM da fila?");
+    if (!confirmado) return;
+
+    setSalvando(true);
+    try {
+      // Adiciona o jogador ao final da fila existente
+      const novaFila = [...filaAtual, jogadorDesistenteUid];
+      const updates: any = { draftOrder: novaFila };
+
+      // Se a fila estava vazia (ninguém jogando e a fase paralisada), ele se torna o dono do turno atual
+      if (filaAtual.length === 0) {
+         updates.draftTurnUid = jogadorDesistenteUid;
+      }
+
+      await updateDoc(doc(db, "game", "state"), updates);
+      toast.success("Técnico reinserido na fila com sucesso!");
+      setJogadorDesistenteUid('');
+    } catch (error) {
+      toast.error("Erro ao retornar jogador.");
     } finally {
       setSalvando(false);
     }
@@ -411,9 +664,6 @@ export default function Admin() {
     return Math.round(sum / 11);
   };
 
-  // ==========================================
-  // CÁLCULOS DO RADAR DE JOGADORES (ADMIN)
-  // ==========================================
   const timesProntos = gameState?.teams?.filter(t => t.isUser && gameState.playersReady?.includes(t.id)) || [];
   const timesNaTv = gameState?.teams?.filter(t => t.isUser && (gameState as any)?.playersInLive?.includes(t.id)) || [];
   const totalHumanos = gameState?.teams?.filter(t => t.isUser).length || 0;
@@ -427,7 +677,7 @@ export default function Admin() {
         {/* CABEÇALHO */}
         <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl gap-4 sm:gap-6">
           <div className="flex-1 w-full text-center md:text-left">
-            <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">Painel da <span className="text-fifa-blue">CBF</span></h1>
+            <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">Painel do <span className="text-fifa-blue">Game Master</span></h1>
             <p className="text-xs sm:text-sm text-neutral-400 mt-2 font-bold tracking-widest uppercase">
               Fase Atual: <span className="text-fifa-green">{gameState?.phase || '...'}</span> <br className="md:hidden" /> <span className="hidden md:inline">|</span> Rodada: <span className="text-fifa-blue">{gameState?.currentRound || 0}</span>/{(gameState as any)?.totalTeams ? ((gameState as any).totalTeams - 1) * 2 : 38}
             </p>
@@ -436,7 +686,6 @@ export default function Admin() {
             </div>
           </div>
           
-          {/* RADAR DE JOGADORES AO VIVO */}
           <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
             <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 text-center flex-1 md:min-w-40 flex flex-col justify-center">
               <p className="text-[10px] text-neutral-500 uppercase font-black">Escalações Prontas</p>
@@ -458,7 +707,7 @@ export default function Admin() {
           </div>
         </div>
 
-        {/* ÁREA DE BOTÕES */}
+        {/* ÁREA DE BOTÕES - LINHA 1 */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border border-neutral-800 flex flex-col gap-2 sm:gap-3">
             <h3 className="text-[10px] sm:text-xs text-neutral-500 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">1. Preparação</h3>
@@ -476,7 +725,6 @@ export default function Admin() {
               </select>
               <button onClick={gerarCampeonato} className="flex-1 py-2 bg-fifa-blue/20 hover:bg-fifa-blue/30 border border-fifa-blue/50 text-fifa-blue font-bold rounded shadow transition-all text-[10px] sm:text-xs uppercase tracking-widest">Gerar Tabela</button>
             </div>
-            {/* BOTÃO DE SIMULAÇÃO VISUALMENTE ATRAENTE SE TODOS ESTIVEREM PRONTOS */}
             <button onClick={simularRodadaAtual} disabled={salvando} className={`w-full py-2 sm:py-3 hover:bg-opacity-80 font-black rounded text-white shadow-lg transition-all text-xs sm:text-sm uppercase tracking-widest mt-auto ${podeDarApito ? 'bg-yellow-500 text-neutral-900 shadow-[0_0_20px_rgba(234,179,8,0.5)] animate-bounce' : 'bg-fifa-blue'}`}>
               {salvando ? 'Processando...' : `Simular Rodada ${Math.min(((gameState as any)?.totalTeams ? ((gameState as any).totalTeams - 1) * 2 : 38), gameState?.currentRound || 1)}`}
             </button>
@@ -488,9 +736,50 @@ export default function Admin() {
             <button onClick={iniciarReturno} className="w-full py-2 bg-fifa-green hover:bg-opacity-80 text-white font-bold rounded shadow transition-all text-[10px] sm:text-sm mt-auto">Iniciar Returno ▶️</button>
           </div>
 
-          <div className="bg-fifa-red/10 p-4 sm:p-5 rounded-xl border border-fifa-red/30 flex flex-col justify-end">
-            <button onClick={resetarPreTemporada} disabled={salvando} className="w-full py-2 sm:py-3 bg-fifa-red/20 hover:bg-fifa-red/40 border border-fifa-red/50 text-fifa-red font-black text-[10px] sm:text-sm tracking-widest uppercase rounded shadow transition-all">🚨 Resetar Servidor</button>
+          <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-orange-500 flex flex-col gap-2 sm:gap-3 shadow-lg">
+            <h3 className="text-[10px] sm:text-xs text-orange-500 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">4. Intervenções (AFK)</h3>
+            
+            <select 
+              value={jogadorDesistenteUid} 
+              onChange={(e) => setJogadorDesistenteUid(e.target.value)} 
+              className="w-full bg-neutral-950 text-white p-2 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-orange-500 text-[10px] sm:text-xs"
+            >
+              <option value="">Selecione o Técnico...</option>
+              {gameState?.teams?.filter(t => t.isUser).map(t => (
+                 <option key={t.id} value={t.id}>{t.nome}</option>
+              ))}
+            </select>
+            <button 
+              onClick={() => autoEscalarJogador(jogadorDesistenteUid)} 
+              disabled={!jogadorDesistenteUid || salvando} 
+              className="w-full py-2 bg-orange-500/20 hover:bg-orange-500/40 border border-orange-500/50 text-orange-500 font-bold rounded shadow transition-all text-[10px] sm:text-xs uppercase tracking-widest disabled:opacity-50"
+            >
+              Auto-Escalar Time
+            </button>
+
+            <div className="flex gap-2 w-full mt-auto">
+              <button 
+                onClick={pularTurnoAtual} 
+                disabled={salvando || !jogadorDesistenteUid || !gameState?.draftOrder || gameState.draftOrder.length === 0} 
+                className="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-white font-bold rounded shadow transition-all text-[10px] sm:text-[10px] uppercase tracking-widest disabled:opacity-50"
+                title="Remove o jogador selecionado da fila atual"
+              >
+                ⏭️ Pular
+              </button>
+              <button 
+                onClick={retornarJogadorAFK} 
+                disabled={salvando || !jogadorDesistenteUid} 
+                className="flex-1 py-2 bg-fifa-green/20 hover:bg-fifa-green/40 border border-fifa-green/50 text-fifa-green font-bold rounded shadow transition-all text-[10px] sm:text-[10px] uppercase tracking-widest disabled:opacity-50"
+                title="Devolve o jogador para o final da fila"
+              >
+                ↩️ Devolver
+              </button>
+            </div>
           </div>
+        </div>
+        
+        <div className="flex justify-end pt-2">
+            <button onClick={resetarPreTemporada} disabled={salvando} className="py-2 px-6 bg-fifa-red/10 hover:bg-fifa-red/30 border border-fifa-red/30 hover:border-fifa-red/60 text-fifa-red font-black text-[10px] sm:text-xs tracking-widest uppercase rounded-lg shadow transition-all">🚨 Resetar Servidor Profundo</button>
         </div>
 
         {/* GERENCIADOR DE CLUBES */}

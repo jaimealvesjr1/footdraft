@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { db, auth } from "../services/firebase";
-import { doc, onSnapshot, updateDoc, arrayUnion } from "firebase/firestore"; // 🚨 Trocamos getDoc por onSnapshot!
+import { doc, onSnapshot, updateDoc, arrayUnion, getDoc } from "firebase/firestore"; 
 import { onAuthStateChanged } from "firebase/auth";
 import type { Jogador } from "../types";
 import toast from 'react-hot-toast';
@@ -21,10 +21,14 @@ const POSICOES_PERMITIDAS: Record<string, string[]> = {
   "ATA": ["ATA", "MEI"]
 };
 
+// NOVO: Adicionamos atributos para identificar Bots e o seu OVR
 interface ProximoJogo {
   rodada: number;
+  adversarioId: string;
   adversarioNome: string;
   isCasa: boolean;
+  isBot: boolean;
+  adversarioOvr?: number;
 }
 
 export default function Dashboard() {
@@ -53,7 +57,6 @@ export default function Dashboard() {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) {
         
-        // 1. OUVINDO O PERFIL DO USUÁRIO EM TEMPO REAL (Cansaço, Cartões, OVR)
         unsubUser = onSnapshot(doc(db, "usuarios", user.uid), (docSnap) => {
           if (docSnap.exists()) {
             const dados = docSnap.data();
@@ -76,8 +79,8 @@ export default function Dashboard() {
           setCarregando(false);
         });
 
-        // 2. OUVINDO O CAMPEONATO EM TEMPO REAL (Para atualizar os próximos jogos)
-        unsubGame = onSnapshot(doc(db, "game", "state"), (gameSnap) => {
+        // NOVO: Adicionado async para podermos buscar os OVRs dos Bots em tempo real
+        unsubGame = onSnapshot(doc(db, "game", "state"), async (gameSnap) => {
           if (gameSnap.exists()) {
             const gameData = gameSnap.data();
             const schedule = gameData.schedule || [];
@@ -94,13 +97,40 @@ export default function Dashboard() {
                  if (meuJogo) {
                    const isCasa = meuJogo.homeId === user.uid;
                    const adversarioId = isCasa ? meuJogo.awayId : meuJogo.homeId;
-                   const adversarioNome = gameData.teams?.find((t: any) => t.id === adversarioId)?.nome || "Desconhecido";
+                   const adversarioTeam = gameData.teams?.find((t: any) => t.id === adversarioId);
+                   const adversarioNome = adversarioTeam?.nome || "Desconhecido";
+                   const isBot = adversarioTeam ? !adversarioTeam.isUser : false;
                    
-                   proximos.push({ rodada: i + 1, adversarioNome: adversarioNome, isCasa: isCasa });
+                   proximos.push({ 
+                       rodada: i + 1, 
+                       adversarioId, 
+                       adversarioNome, 
+                       isCasa, 
+                       isBot 
+                   });
                  }
                }
             }
-            setProximosJogos(proximos);
+
+            // BUSCADOR DE OVERALL DOS BOTS
+            const proximosComOvr = await Promise.all(proximos.map(async (jogo) => {
+                if (jogo.isBot) {
+                    try {
+                        const botDoc = await getDoc(doc(db, "clubes", jogo.adversarioId));
+                        if (botDoc.exists()) {
+                            const botElenco = botDoc.data().elenco || [];
+                            const sorted = [...botElenco].sort((a: any, b: any) => b.overall - a.overall).slice(0, 11);
+                            const sum = sorted.reduce((acc: number, jog: any) => acc + jog.overall, 0);
+                            jogo.adversarioOvr = sorted.length > 0 ? Math.round(sum / sorted.length) : 0;
+                        }
+                    } catch(e) { 
+                        console.log("Erro ao buscar OVR do bot", e);
+                    }
+                }
+                return jogo;
+            }));
+
+            setProximosJogos(proximosComOvr);
           }
         });
 
@@ -296,7 +326,6 @@ export default function Dashboard() {
     <div className="min-h-screen bg-neutral-950 text-neutral-200 p-4 md:p-8 flex flex-col font-fifa">
       <div className="max-w-7xl mx-auto w-full space-y-6">
         
-        {/* Cabeçalho do Dashboard */}
         <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-2xl gap-4 md:gap-0">
           <div className="flex items-center gap-4 sm:gap-6 w-full md:w-auto">
             <div className="w-12 h-12 sm:w-16 sm:h-16 shrink-0 bg-neutral-950 border-2 border-fifa-blue rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(42,57,141,0.4)]">
@@ -332,10 +361,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Layout do Conteúdo Principal */}
         <div className="flex flex-col xl:flex-row gap-6">
-          
-          {/* Blocos de Informação (Análise, Plantel e Próximos Jogos) - Ordem 2 no Mobile, Ordem 1 no PC */}
           <div className="w-full xl:w-72 flex flex-col gap-4 order-2 xl:order-1 mt-4 xl:mt-0">
             <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl">
               <h3 className="text-neutral-500 font-black uppercase tracking-widest text-[10px] sm:text-xs border-b border-neutral-800 pb-2 mb-4">Análise do Elenco</h3>
@@ -411,9 +437,15 @@ export default function Dashboard() {
                  <ul className="space-y-3">
                    {proximosJogos.map((jogo, idx) => (
                      <li key={idx} className="flex justify-between items-center bg-neutral-950 p-2 sm:p-3 rounded-lg border border-neutral-800">
-                       <div>
+                       <div className="flex flex-col">
                          <span className="text-[8px] sm:text-[10px] text-cyan-400 font-bold uppercase tracking-widest block">Rodada {jogo.rodada}</span>
-                         <span className="text-[10px] sm:text-xs font-black text-white uppercase tracking-tighter truncate max-w-30 block">{jogo.adversarioNome}</span>
+                         <div className="flex items-center gap-1.5 mt-0.5">
+                           <span className="text-[10px] sm:text-xs font-black text-white uppercase tracking-tighter truncate max-w-30 block">{jogo.adversarioNome}</span>
+                           {/* NOVO: Badge Dourada do OVR do Bot */}
+                           {jogo.isBot && jogo.adversarioOvr ? (
+                              <span className="text-[8px] bg-neutral-800 text-yellow-500 px-1 py-0.5 rounded font-black border border-neutral-700 leading-none shadow-sm" title="Overall Médio do Bot">⭐ {jogo.adversarioOvr} OVR</span>
+                           ) : null}
+                         </div>
                        </div>
                        <div className="shrink-0">
                          <span className={`text-[8px] sm:text-[10px] px-2 py-1 rounded font-black tracking-widest ${jogo.isCasa ? 'bg-yellow-900/30 text-yellow-500 border border-yellow-700/50' : 'bg-neutral-800 text-neutral-400'}`}>
@@ -427,7 +459,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Campo de Futebol - Ordem 1 no Mobile, Ordem 2 no PC */}
           <div className="relative flex-1 min-h-150 md:min-h-187.5 bg-linear-to-b from-[#0a2e1c] to-[#041a0e] rounded-xl border-4 border-white/10 overflow-hidden flex flex-col justify-evenly py-6 sm:py-8 shadow-2xl order-1 xl:order-2">
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-24 border-b-4 border-x-4 border-white/20 rounded-b-xl"></div>
             <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-24 border-t-4 border-x-4 border-white/20 rounded-t-xl"></div>
@@ -445,65 +476,114 @@ export default function Dashboard() {
 
       {modalAberto && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-          <div className="bg-neutral-900 border border-neutral-700 rounded-xl w-full max-w-md p-4 sm:p-6 shadow-2xl max-h-[80vh] flex flex-col">
-            <div className="flex justify-between items-center mb-4 border-b border-neutral-800 pb-4">
-              <h2 className="text-lg sm:text-xl font-black text-white uppercase tracking-wider">Banco <span className="text-cyan-400">{posicaoModal}</span></h2>
+          <div className="bg-neutral-900 border border-neutral-700 rounded-xl w-full max-w-lg p-4 sm:p-6 shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center mb-4 border-b border-neutral-800 pb-4 shrink-0">
+              <h2 className="text-lg sm:text-xl font-black text-white uppercase tracking-wider">Substituição <span className="text-cyan-400">{posicaoModal}</span></h2>
               <button onClick={() => setModalAberto(false)} className="text-neutral-500 hover:text-white font-black text-lg bg-neutral-800 w-8 h-8 rounded-full flex items-center justify-center">X</button>
             </div>
             
-            <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-              {jogadoresParaModal.length === 0 && (
-                <p className="text-neutral-500 text-center py-8 text-xs sm:text-sm font-bold uppercase tracking-widest">Nenhum jogador disponível para esta vaga.</p>
-              )}
-              {jogadoresParaModal.map(j => {
-                const isLesionado = j.statusFisico?.lesionado;
-                const isSuspenso = j.statusFisico?.suspenso;
-                const isBloqueado = isLesionado || isSuspenso;
-                
-                const isImprovisadoModal = j.posicao !== posicaoModal;
-                const overallPenalizado = isImprovisadoModal ? Math.floor(j.overall * 0.85) : j.overall;
-                
-                const isPendurado = j.statusFisico && (j.statusFisico as any).amarelos === 1;
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 flex flex-col gap-6">
+
+              {jogadorSendoSubstituido && (() => {
+                const jAtual = elenco.find(j => j.id === jogadorSendoSubstituido);
+                if (!jAtual) return null;
+                const isImprovAtual = jAtual.posicao !== posicaoModal;
+                const ovrAtual = isImprovAtual ? Math.floor(jAtual.overall * 0.85) : jAtual.overall;
 
                 return (
-                  <button 
-                    key={j.id} 
-                    onClick={() => !isBloqueado && confirmarTroca(j.id)} 
-                    disabled={isBloqueado}
-                    className={`w-full p-3 sm:p-4 rounded-lg flex justify-between items-center transition-all text-left border relative overflow-hidden
-                      ${isBloqueado ? 'bg-neutral-950 border-neutral-800 opacity-50 cursor-not-allowed grayscale' : 'bg-neutral-800 border-neutral-700 hover:border-yellow-500 cursor-pointer'}
-                    `}
-                  >
-                    {!isBloqueado && <div className={`absolute top-0 left-0 w-1 h-full ${overallPenalizado >= 88 ? 'bg-yellow-500' : 'bg-neutral-500'}`}></div>}
-                    <div className="pl-2">
-                      <p className="font-black text-sm sm:text-base text-neutral-200">{j.nome}</p>
-                      <div className="text-[8px] sm:text-[10px] text-neutral-400 font-bold uppercase mt-1 flex items-center gap-1 sm:gap-2 flex-wrap">
-                        <span>{j.clubeHistorico}</span> 
-                        <span className="bg-neutral-800 text-cyan-400 px-1.5 py-0.5 rounded border border-neutral-700">
-                          {j.posicao}
-                        </span>
-                        {isImprovisadoModal && <span className="text-red-400 font-black">⚠️ Improvisado</span>}
+                  <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4 shrink-0 shadow-inner relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-1.5 h-full bg-fifa-red/80"></div>
+                    <span className="text-[10px] sm:text-xs text-fifa-red font-black uppercase tracking-widest block mb-2 pl-3">⬇️ Deixando o Campo</span>
+                    <div className="flex justify-between items-center pl-3">
+                      <div>
+                        <p className="font-black text-base sm:text-lg text-white">{jAtual.nome}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] bg-neutral-800 text-neutral-300 px-1.5 py-0.5 rounded font-bold">{jAtual.posicao}</span>
+                          {renderEnergia(jAtual.statusFisico?.cansaco ?? 1)}
+                          {isImprovAtual && <span className="text-[10px] text-red-400 font-black">⚠️ Improv.</span>}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 mt-2">
-                        {renderEnergia(j.statusFisico?.cansaco ?? 1)}
-                        {isLesionado && <span className="text-[8px] sm:text-[10px] text-orange-500 font-bold ml-1">🏥 DM</span>}
-                        {isSuspenso && !isLesionado && <span className="text-[8px] sm:text-[10px] text-red-500 font-bold ml-1">🟥 Suspenso</span>}
-                        {isPendurado && !isBloqueado && <span className="text-[8px] sm:text-[10px] text-yellow-500 font-bold ml-1">🟨 Pendurado</span>}
+                      <div className="text-right flex flex-col items-center justify-center">
+                        <span className="text-xl sm:text-2xl font-black text-white bg-neutral-900 px-3 py-1 rounded-lg border border-neutral-700">{ovrAtual}</span>
+                        <span className="block text-[8px] text-neutral-500 uppercase font-bold tracking-widest mt-1">OVR em Campo</span>
                       </div>
                     </div>
-                    <span className={`text-xs sm:text-sm px-3 py-2 rounded font-black border ${overallPenalizado >= 88 ? 'bg-yellow-900/50 text-yellow-500 border-yellow-700/50' : 'bg-neutral-900 text-white border-neutral-700'}`}>
-                      {overallPenalizado}
-                    </span>
-                  </button>
+                    <button onClick={() => removerDoTime(jogadorSendoSubstituido)} className="mt-4 ml-3 w-[calc(100%-0.75rem)] bg-neutral-900 hover:bg-fifa-red hover:text-white text-fifa-red font-bold py-2 sm:py-3 rounded-lg border border-neutral-800 hover:border-fifa-red transition-colors uppercase tracking-widest text-[10px] sm:text-xs shadow-lg">
+                      Remover Jogador (Deixar Posição Vazia)
+                    </button>
+                  </div>
                 );
-              })}
+              })()}
+
+              <div className="flex flex-col gap-2">
+                <span className="text-[10px] sm:text-xs text-fifa-green font-black uppercase tracking-widest block mb-1">⬆️ Entrando (Opções no Banco)</span>
+                
+                {jogadoresParaModal.length === 0 && (
+                  <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-6 text-center">
+                    <p className="text-neutral-500 text-xs sm:text-sm font-bold uppercase tracking-widest">Nenhum atleta apto para esta vaga.</p>
+                  </div>
+                )}
+
+                {jogadoresParaModal.map(j => {
+                  const isLesionado = j.statusFisico?.lesionado;
+                  const isSuspenso = j.statusFisico?.suspenso;
+                  const isBloqueado = isLesionado || isSuspenso;
+                  
+                  const isImprovisadoModal = j.posicao !== posicaoModal;
+                  const overallPenalizado = isImprovisadoModal ? Math.floor(j.overall * 0.85) : j.overall;
+                  
+                  const isPendurado = j.statusFisico && (j.statusFisico as any).amarelos === 1;
+
+                  let diffBadge = null;
+                  if (jogadorSendoSubstituido) {
+                    const jAtual = elenco.find(x => x.id === jogadorSendoSubstituido);
+                    if (jAtual) {
+                       const ovrAtual = (jAtual.posicao !== posicaoModal) ? Math.floor(jAtual.overall * 0.85) : jAtual.overall;
+                       const diff = overallPenalizado - ovrAtual;
+                       if (diff > 0) diffBadge = <span className="text-[10px] text-fifa-green font-black px-1.5 py-0.5 rounded bg-fifa-green/10 border border-fifa-green/30">+{diff} OVR</span>;
+                       else if (diff < 0) diffBadge = <span className="text-[10px] text-fifa-red font-black px-1.5 py-0.5 rounded bg-fifa-red/10 border border-fifa-red/30">{diff} OVR</span>;
+                       else diffBadge = <span className="text-[10px] text-neutral-500 font-black px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700">= Mantém</span>;
+                    }
+                  }
+
+                  return (
+                    <button 
+                      key={j.id} 
+                      onClick={() => !isBloqueado && confirmarTroca(j.id)} 
+                      disabled={isBloqueado}
+                      className={`w-full p-3 sm:p-4 rounded-xl flex justify-between items-center transition-all text-left border relative overflow-hidden group
+                        ${isBloqueado ? 'bg-neutral-950 border-neutral-800 opacity-50 cursor-not-allowed grayscale' : 'bg-neutral-800 border-neutral-700 hover:border-fifa-green cursor-pointer hover:bg-neutral-800/80 hover:shadow-[0_0_15px_rgba(60,172,59,0.15)]'}
+                      `}
+                    >
+                      {!isBloqueado && <div className={`absolute top-0 left-0 w-1.5 h-full transition-colors ${overallPenalizado >= 88 ? 'bg-yellow-500 group-hover:bg-fifa-green' : 'bg-neutral-600 group-hover:bg-fifa-green'}`}></div>}
+                      <div className="pl-3">
+                        <p className="font-black text-sm sm:text-base text-neutral-200">{j.nome}</p>
+                        <div className="text-[8px] sm:text-[10px] text-neutral-400 font-bold uppercase mt-1 flex items-center gap-1 sm:gap-2 flex-wrap">
+                          <span>{j.clubeHistorico}</span> 
+                          <span className="bg-neutral-900 text-cyan-400 px-1.5 py-0.5 rounded border border-neutral-700">
+                            {j.posicao}
+                          </span>
+                          {isImprovisadoModal && <span className="text-red-400 font-black">⚠️ Improvisado</span>}
+                        </div>
+                        <div className="flex items-center gap-2 mt-2">
+                          {renderEnergia(j.statusFisico?.cansaco ?? 1)}
+                          {isLesionado && <span className="text-[8px] sm:text-[10px] text-orange-500 font-bold ml-1">🏥 DM</span>}
+                          {isSuspenso && !isLesionado && <span className="text-[8px] sm:text-[10px] text-red-500 font-bold ml-1">🟥 Suspenso</span>}
+                          {isPendurado && !isBloqueado && <span className="text-[8px] sm:text-[10px] text-yellow-500 font-bold ml-1">🟨 Pendurado</span>}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className={`text-base sm:text-lg px-3 py-1 rounded-lg font-black border ${overallPenalizado >= 88 ? 'bg-yellow-900/50 text-yellow-500 border-yellow-700/50' : 'bg-neutral-950 text-white border-neutral-700'}`}>
+                          {overallPenalizado}
+                        </span>
+                        {diffBadge && <div>{diffBadge}</div>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            {jogadorSendoSubstituido && (
-              <button onClick={() => removerDoTime(jogadorSendoSubstituido)} className="mt-4 w-full bg-neutral-950 hover:bg-neutral-800 text-neutral-400 font-bold py-3 sm:py-4 rounded-lg border border-neutral-800 transition-colors uppercase tracking-widest text-[10px] sm:text-sm">
-                Remover para o Banco
-              </button>
-            )}
           </div>
         </div>
       )}

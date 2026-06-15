@@ -171,7 +171,7 @@ export default function Matches() {
               Aguardando o Apito Inicial
             </h2>
             <p className="text-neutral-500 text-[10px] sm:text-xs mt-3 font-bold uppercase tracking-widest">
-              Jogadores está aquecendo no pré-jogo...
+              Aguardando o Game Master simular a rodada no servidor...
             </p>
 
             {/* LISTA QUEM AINDA NÃO CHEGOU NA TV */}
@@ -230,18 +230,20 @@ export default function Matches() {
       </div>
 
       <div className="max-w-7xl mx-auto w-full flex flex-col xl:flex-row gap-4 sm:gap-8 flex-1 pb-10">
+        
+        {/* MEU CONFRONTO - GIGANTE NA ESQUERDA */}
         <div className="flex-1 flex flex-col gap-4">
-          <h3 className="text-yellow-500 font-black tracking-widest uppercase mb-2 border-b border-neutral-800 pb-2 text-sm sm:text-base">Mesa Central de Jogos</h3>
-          {partidasAoVivo.map((jogo, i) => (
+          <h3 className="text-yellow-500 font-black tracking-widest uppercase mb-2 border-b border-neutral-800 pb-2 text-sm sm:text-base">O Seu Confronto</h3>
+          {partidasAoVivo.filter(j => j.timeA === currentUserUid || j.timeB === currentUserUid).map((jogo, i) => (
             <div key={i} className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden shadow-2xl flex flex-col min-h-100 sm:min-h-125">
               <div className="p-4 sm:p-8 pb-4 bg-neutral-950 flex justify-between items-center shrink-0">
-                <span className={`font-black uppercase tracking-tighter flex-1 text-right truncate pr-2 sm:pr-6 text-sm sm:text-2xl md:text-3xl text-neutral-400`} title={jogo.nomeTimeA}>{jogo.nomeTimeA}</span>
+                <span className={`font-black uppercase tracking-tighter flex-1 text-right truncate pr-2 sm:pr-6 text-sm sm:text-2xl md:text-3xl ${jogo.timeA === currentUserUid ? 'text-yellow-400' : 'text-neutral-400'}`} title={jogo.nomeTimeA}>{jogo.nomeTimeA}</span>
                 <div className="flex items-center gap-2 sm:gap-6 bg-neutral-900 px-3 sm:px-8 py-2 sm:py-4 rounded-xl border border-neutral-800 shadow-inner">
                   <span className={`font-black text-3xl sm:text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsCasaLive > 0 ? 'text-fifa-green scale-110' : 'text-white'}`}>{jogo.golsCasaLive}</span>
                   <span className="text-neutral-600 font-black text-xl sm:text-3xl">X</span>
                   <span className={`font-black text-3xl sm:text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsForaLive > 0 ? 'text-fifa-green scale-110' : 'text-white'}`}>{jogo.golsForaLive}</span>
                 </div>
-                <span className={`font-black uppercase tracking-tighter flex-1 text-left truncate pl-2 sm:pl-6 text-sm sm:text-2xl md:text-3xl text-neutral-400`} title={jogo.nomeTimeB}>{jogo.nomeTimeB}</span>
+                <span className={`font-black uppercase tracking-tighter flex-1 text-left truncate pl-2 sm:pl-6 text-sm sm:text-2xl md:text-3xl ${jogo.timeB === currentUserUid ? 'text-yellow-400' : 'text-neutral-400'}`} title={jogo.nomeTimeB}>{jogo.nomeTimeB}</span>
               </div>
               <div className="px-4 sm:px-8 pb-4 sm:pb-6 bg-neutral-950 border-b border-neutral-800">
                 <div className="flex justify-between text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-neutral-500 mb-2">
@@ -257,6 +259,9 @@ export default function Matches() {
                       const alturaPercentual = Math.min(100, Math.abs(ponto.valor));
                       return (
                         <div key={idx} className="flex-1 h-full flex flex-col group relative">
+                          <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none">
+                            {ponto.minuto}'
+                          </div>
                           <div className="h-1/2 w-full flex items-end">{isCasa && <div className="w-full bg-fifa-green shadow-[0_0_8px_rgba(60,172,59,0.6)] rounded-t-sm" style={{ height: `${alturaPercentual}%` }}></div>}</div>
                           <div className="h-1/2 w-full flex items-start">{!isCasa && <div className="w-full bg-fifa-blue shadow-[0_0_8px_rgba(42,57,141,0.6)] rounded-b-sm" style={{ height: `${alturaPercentual}%` }}></div>}</div>
                         </div>
@@ -287,10 +292,29 @@ export default function Matches() {
               </div>
             </div>
           ))}
-          {partidasAoVivo.length === 0 && (
-             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 sm:p-12 text-center text-neutral-500 font-bold uppercase tracking-widest h-64 sm:h-125 flex items-center justify-center text-xs sm:text-base">Sem partidas na rodada.</div>
+          {partidasAoVivo.filter(j => j.timeA === currentUserUid || j.timeB === currentUserUid).length === 0 && (
+             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 sm:p-12 text-center text-neutral-500 font-bold uppercase tracking-widest h-64 sm:h-125 flex items-center justify-center text-xs sm:text-base">Você não possui jogos nesta rodada (BYE).</div>
           )}
         </div>
+
+        {/* DEMAIS CONFRONTOS - COMPACTOS NA DIREITA */}
+        <div className="w-full xl:w-100 flex flex-col gap-4">
+          <h3 className="text-neutral-500 font-black tracking-widest uppercase mb-2 border-b border-neutral-800 pb-2 text-sm sm:text-base">Outros Jogos</h3>
+          <div className="flex flex-col gap-2 sm:gap-3 overflow-y-auto custom-scrollbar max-h-96 xl:max-h-150 pr-1 sm:pr-2">
+            {partidasAoVivo.filter(j => j.timeA !== currentUserUid && j.timeB !== currentUserUid).map((jogo, i) => (
+              <div key={i} className="bg-neutral-900 border border-neutral-800 rounded-xl p-3 sm:p-4 flex justify-between items-center shadow-lg hover:border-neutral-700 transition-colors">
+                <span className="font-bold text-neutral-400 uppercase tracking-widest flex-1 text-right truncate pr-2 sm:pr-3 text-[10px] sm:text-xs" title={jogo.nomeTimeA}>{jogo.nomeTimeA}</span>
+                <div className="flex items-center gap-2 sm:gap-3 bg-neutral-950 px-2 sm:px-4 py-1 sm:py-2 rounded-lg border border-neutral-800 shrink-0">
+                  <span className={`font-black text-sm sm:text-xl ${minuto > 0 && jogo.golsCasaLive > 0 ? 'text-yellow-400' : 'text-white'}`}>{jogo.golsCasaLive}</span>
+                  <span className="text-neutral-700 font-black text-[10px] sm:text-xs">X</span>
+                  <span className={`font-black text-sm sm:text-xl ${minuto > 0 && jogo.golsForaLive > 0 ? 'text-yellow-400' : 'text-white'}`}>{jogo.golsForaLive}</span>
+                </div>
+                <span className="font-bold text-neutral-400 uppercase tracking-widest flex-1 text-left truncate pl-2 sm:pl-3 text-[10px] sm:text-xs" title={jogo.nomeTimeB}>{jogo.nomeTimeB}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
       </div>
     </div>
   );
