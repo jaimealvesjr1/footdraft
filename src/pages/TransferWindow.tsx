@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { db } from '../services/firebase';
 import { doc, onSnapshot, updateDoc, getDocs, collection } from 'firebase/firestore';
 import { type GameState, type Jogador, type Clube } from '../types';
-import toast from 'react-hot-toast';
+import toast from 'react-hot-toast'; // NOVO AQUI
 
 interface Usuario {
   id: string;
@@ -21,6 +21,7 @@ interface PacoteSubstituicao {
 export default function TransferWindow({ uid }: { uid: string }) {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [meuTime, setMeuTime] = useState<Usuario | null>(null);
+  const [todosUsuarios, setTodosUsuarios] = useState<Usuario[]>([]); // ESTADO ADICIONADO
   
   const [todosJogadoresBase, setTodosJogadoresBase] = useState<Jogador[]>([]);
   const [jogadoresLivres, setJogadoresLivres] = useState<Jogador[]>([]);
@@ -56,14 +57,21 @@ export default function TransferWindow({ uid }: { uid: string }) {
   }, []);
 
   useEffect(() => {
-    if (todosJogadoresBase.length === 0) return;
     const unsubUsuarios = onSnapshot(collection(db, "usuarios"), (snap) => {
+      const usuariosList: Usuario[] = [];
       const idsOcupados = new Set<string>();
+      
       snap.forEach(d => {
-        const u = d.data() as Usuario;
+        const u = { id: d.id, ...d.data() } as Usuario;
+        usuariosList.push(u);
         if (u.elenco) u.elenco.forEach((j: Jogador) => idsOcupados.add(j.id));
       });
-      setJogadoresLivres(todosJogadoresBase.filter(j => !idsOcupados.has(j.id)));
+      
+      setTodosUsuarios(usuariosList);
+      
+      if (todosJogadoresBase.length > 0) {
+        setJogadoresLivres(todosJogadoresBase.filter(j => !idsOcupados.has(j.id)));
+      }
     });
     return () => unsubUsuarios();
   }, [todosJogadoresBase]);
@@ -127,37 +135,6 @@ export default function TransferWindow({ uid }: { uid: string }) {
     sub.opcoes.length === 0 || sub.selecionado !== null
   );
 
-  const gerarProximaRodadaDeTransferencias = async (uidAtualizou?: string, trocasAtualizadas?: number) => {
-    if (!gameState || !gameState.standings) return;
-
-    const usersSnap = await getDocs(collection(db, "usuarios"));
-    const usuariosAtuais = usersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Usuario));
-    
-    const tabelaInvertida = [...gameState.standings].reverse();
-    const novaFila: string[] = [];
-
-    tabelaInvertida.forEach(timeDaTabela => {
-      const user = usuariosAtuais.find(u => u.id === timeDaTabela.id);
-      if (user) {
-          const trocasFeitas = (user.id === uidAtualizou && trocasAtualizadas !== undefined) ? trocasAtualizadas : (user.trocasRealizadas || 0);
-          
-          if (trocasFeitas < (user.trocasPermitidas || 0)) {
-            novaFila.push(user.id);
-          }
-      }
-    });
-
-    if (novaFila.length > 0) {
-      await updateDoc(doc(db, "game", "state"), {
-        draftTurnUid: novaFila[0], 
-        draftOrder: novaFila 
-      });
-    } else {
-      await updateDoc(doc(db, "game", "state"), { draftTurnUid: null, draftOrder: [] });
-      toast.success("Janela de Transferências encerrada!");
-    }
-  };
-
   const confirmarTrocasEmMassa = async () => {
     if (!meuTime || !gameState || !todasVagasPreenchidas) return;
     setCarregando(true);
@@ -179,13 +156,13 @@ export default function TransferWindow({ uid }: { uid: string }) {
         trocasRealizadas: trocasFeitas
       });
 
-      // CORREÇÃO: Remoção cirúrgica usando filter em vez de shift()
-      const novaOrdem = (gameState.draftOrder || []).filter(id => id !== uid);
+      const novaOrdem = [...(gameState.draftOrder || [])];
+      novaOrdem.shift(); 
 
       if (novaOrdem.length > 0) {
         await updateDoc(doc(db, "game", "state"), { draftTurnUid: novaOrdem[0], draftOrder: novaOrdem });
       } else {
-        await gerarProximaRodadaDeTransferencias(uid, trocasFeitas);
+        await gerarProximaRodadaDeTransferencias();
       }
 
       setJogadoresParaSair([]);
@@ -201,30 +178,43 @@ export default function TransferWindow({ uid }: { uid: string }) {
     }
   };
 
-  // CORREÇÃO E BLINDAGEM: Pular Turno
-  const encerrarMinhasTrocas = async () => {
-    if (!window.confirm("Você abrirá mão das suas trocas restantes nesta janela inteira. Confirmar?")) return;
-    
-    setCarregando(true);
-    try {
-      // Forçamos o valor 99 para garantir absoluta certeza que o jogador excedeu o limite
-      const maxTrocas = 99; 
-      await updateDoc(doc(db, "usuarios", uid), { trocasRealizadas: maxTrocas });
+  const gerarProximaRodadaDeTransferencias = async () => {
+    if (!gameState || !gameState.standings) return;
 
-      // Remoção cirúrgica com filter
-      const novaOrdem = (gameState?.draftOrder || []).filter(id => id !== uid);
-      
-      if (novaOrdem.length > 0) {
-        await updateDoc(doc(db, "game", "state"), { draftTurnUid: novaOrdem[0], draftOrder: novaOrdem });
-        toast.success("Você encerrou suas participações nesta janela!");
-      } else {
-        await gerarProximaRodadaDeTransferencias(uid, maxTrocas);
+    const usersSnap = await getDocs(collection(db, "usuarios"));
+    const usuariosAtuais = usersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Usuario));
+    const tabelaInvertida = [...gameState.standings].reverse();
+    const novaFila: string[] = [];
+
+    tabelaInvertida.forEach(timeDaTabela => {
+      const user = usuariosAtuais.find(u => u.id === timeDaTabela.id);
+      if (user && (user.trocasRealizadas || 0) < (user.trocasPermitidas || 0)) {
+        novaFila.push(user.id);
       }
-    } catch(e) {
-        console.error(e);
-        toast.error("Erro ao pular o turno.");
-    } finally {
-        setCarregando(false);
+    });
+
+    if (novaFila.length > 0) {
+      await updateDoc(doc(db, "game", "state"), {
+        draftTurnUid: novaFila[0], 
+        draftOrder: novaFila 
+      });
+    } else {
+      await updateDoc(doc(db, "game", "state"), { draftTurnUid: null, draftOrder: [] });
+      toast.success("Janela de Transferências encerrada!");
+    }
+  };
+
+  const encerrarMinhasTrocas = async () => {
+    if (!window.confirm("Você abrirá mão das suas trocas restantes. Confirmar?")) return;
+    
+    await updateDoc(doc(db, "usuarios", uid), { trocasRealizadas: meuTime?.trocasPermitidas || 0 });
+
+    const novaOrdem = [...(gameState?.draftOrder || [])];
+    novaOrdem.shift();
+    if (novaOrdem.length > 0) {
+      await updateDoc(doc(db, "game", "state"), { draftTurnUid: novaOrdem[0], draftOrder: novaOrdem });
+    } else {
+      await gerarProximaRodadaDeTransferencias();
     }
   };
 
@@ -239,6 +229,32 @@ export default function TransferWindow({ uid }: { uid: string }) {
         Trocas Disponíveis: <span className="text-white text-xl">{trocasRestantes}</span>
       </p>
 
+      {/* FILA DA JANELA */}
+      {gameState?.draftOrder && gameState.draftOrder.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-sm font-bold text-neutral-500 uppercase tracking-widest mb-3">Ordem da Janela de Transferências</h3>
+          <div className="flex gap-3 overflow-x-auto pb-4 custom-scrollbar">
+            {gameState.draftOrder.map((idDaVez, index) => {
+              const userDaVez = todosUsuarios.find(u => u.id === idDaVez);
+              const isCurrent = index === 0;
+              return (
+                <div 
+                  key={`${idDaVez}-${index}`} 
+                  className={`shrink-0 px-4 py-3 rounded-lg border-2 font-black uppercase tracking-widest text-sm transition-all flex items-center gap-2 ${
+                    isCurrent 
+                      ? 'border-fifa-green bg-fifa-green/20 text-fifa-green shadow-[0_0_10px_rgba(60,172,59,0.3)]' 
+                      : 'border-neutral-800 bg-neutral-900 text-neutral-500'
+                  }`}
+                >
+                  <span className="text-xs opacity-50">{index + 1}º</span>
+                  {userDaVez?.nomeTime || 'Carregando...'}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* BANNER DE TURNO */}
       <div className={`p-4 rounded-xl font-black uppercase tracking-widest text-center mb-8 border-2 transition-all ${isMinhaVez ? 'bg-fifa-green/20 border-fifa-green text-fifa-green animate-pulse shadow-[0_0_15px_rgba(60,172,59,0.2)]' : 'bg-neutral-900 border-neutral-800 text-neutral-500'}`}>
         {isMinhaVez ? '⏱️ É A SUA VEZ! ESCOLHA QUEM ENTRA E QUEM SAI.' : 'Aguarde a sua vez...'}
@@ -249,7 +265,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
           
           {etapaTroca === 'SELECIONAR_SAIDA' && (
             <button 
-              disabled={jogadoresParaSair.length === 0 || carregando}
+              disabled={jogadoresParaSair.length === 0}
               onClick={travarSaidasEGerarOpcoes}
               className="px-6 py-3 bg-fifa-blue hover:bg-opacity-80 disabled:opacity-50 font-black uppercase tracking-widest rounded shadow-[0_0_15px_rgba(42,57,141,0.4)] transition-colors text-white"
             >
@@ -269,10 +285,9 @@ export default function TransferWindow({ uid }: { uid: string }) {
           
           <button 
             onClick={encerrarMinhasTrocas}
-            disabled={carregando}
-            className="px-6 py-3 bg-neutral-900 hover:bg-fifa-red/20 border border-neutral-800 hover:border-fifa-red/50 font-bold uppercase rounded transition-colors text-fifa-red disabled:opacity-50"
+            className="px-6 py-3 bg-neutral-900 hover:bg-fifa-red/20 border border-neutral-800 hover:border-fifa-red/50 font-bold uppercase rounded transition-colors text-fifa-red"
           >
-            {carregando ? 'Encerrando...' : 'Encerrar Minha Janela (Pular)'}
+            Encerrar Minha Janela (Pular)
           </button>
         </div>
       )}

@@ -118,6 +118,26 @@ export default function Championship() {
             </div>
           )}
 
+          {/* EXIBIÇÃO DO PLACAR DA ÚLTIMA RODADA CRUCIAL */}
+          {(() => {
+            const ultimosJogos = gameState.schedule?.[totalRounds - 1]?.jogos || [];
+            const meuUltimoJogoGeral = ultimosJogos.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
+            if (!meuUltimoJogoGeral || meuUltimoJogoGeral.homeScore === null) return null;
+            
+            return (
+              <div className="max-w-3xl mx-auto bg-neutral-900 p-4 sm:p-5 rounded-2xl border border-neutral-800 shadow-2xl mb-8 animate-fade-in">
+                <h3 className="text-yellow-500 font-black mb-4 uppercase text-[10px] sm:text-xs tracking-widest border-b border-neutral-800 pb-2 text-center">Seu Desempenho na Rodada Final (Rodada {totalRounds})</h3>
+                <div className="flex justify-center items-center gap-2 sm:gap-4 text-2xl sm:text-3xl font-black text-white bg-neutral-950 py-3 sm:py-4 rounded-xl border border-neutral-800 shadow-inner px-4">
+                  <div className="text-right flex-1 text-xs sm:text-lg md:text-xl text-neutral-400 uppercase tracking-tighter truncate">{getNomeClube(meuUltimoJogoGeral.homeId)}</div>
+                  <span className={meuUltimoJogoGeral.homeScore > (meuUltimoJogoGeral.awayScore || 0) ? "text-fifa-green" : "text-white"}>{meuUltimoJogoGeral.homeScore}</span>
+                  <span className="text-neutral-700 text-lg sm:text-xl">x</span>
+                  <span className={(meuUltimoJogoGeral.awayScore || 0) > meuUltimoJogoGeral.homeScore ? "text-fifa-green" : "text-white"}>{meuUltimoJogoGeral.awayScore}</span>
+                  <div className="text-left flex-1 text-xs sm:text-lg md:text-xl text-neutral-400 uppercase tracking-tighter truncate">{getNomeClube(meuUltimoJogoGeral.awayId)}</div>
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
             <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-2xl h-fit">
               <h2 className="text-xl font-black text-yellow-500 uppercase tracking-widest border-b border-neutral-800 pb-4 mb-4 flex items-center gap-3"><span className="text-2xl">⚽</span> Chuteira de Ouro</h2>
