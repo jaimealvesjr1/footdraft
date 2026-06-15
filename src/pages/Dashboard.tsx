@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { db, auth } from "../services/firebase";
-import { doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, arrayUnion } from "firebase/firestore"; // 🚨 Trocamos getDoc por onSnapshot!
 import { onAuthStateChanged } from "firebase/auth";
 import type { Jogador } from "../types";
 import toast from 'react-hot-toast';
@@ -47,33 +47,41 @@ export default function Dashboard() {
   const [isSalvandoTatica, setIsSalvandoTatica] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const docSnap = await getDoc(doc(db, "usuarios", user.uid));
-        if (docSnap.exists()) {
-          const dados = docSnap.data();
-          
-          const elencoBruto = dados.elenco || [];
-          const elencoUnico = Array.from(new Map(elencoBruto.map((j: Jogador) => [j.id, j])).values()) as Jogador[];
-          
-          setElenco(elencoUnico); 
-          setNomeTime(dados.nomeTime || "Time Desconhecido");
-          setNomeTecnico(dados.nomeTecnico || "Técnico");
-          setXpTotal(dados.xpTotal || 0); 
-          setTaticasSalvas(dados.taticasSalvas || {}); 
-          
-          const formacaoDB = dados.formacao as Formacao;
-          setFormacao(REGRAS_FORMACAO[formacaoDB] ? formacaoDB : "4-3-3");
-          
-          const titularsDB = dados.titularesIds;
-          setTitularesIds(Array.isArray(titularsDB) && titularsDB.length === 11 ? titularsDB : Array(11).fill(null));
+    let unsubUser: (() => void) | null = null;
+    let unsubGame: (() => void) | null = null;
 
-          const gameSnap = await getDoc(doc(db, "game", "state"));
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        
+        // 1. OUVINDO O PERFIL DO USUÁRIO EM TEMPO REAL (Cansaço, Cartões, OVR)
+        unsubUser = onSnapshot(doc(db, "usuarios", user.uid), (docSnap) => {
+          if (docSnap.exists()) {
+            const dados = docSnap.data();
+            
+            const elencoBruto = dados.elenco || [];
+            const elencoUnico = Array.from(new Map(elencoBruto.map((j: Jogador) => [j.id, j])).values()) as Jogador[];
+            
+            setElenco(elencoUnico); 
+            setNomeTime(dados.nomeTime || "Time Desconhecido");
+            setNomeTecnico(dados.nomeTecnico || "Técnico");
+            setXpTotal(dados.xpTotal || 0); 
+            setTaticasSalvas(dados.taticasSalvas || {}); 
+            
+            const formacaoDB = dados.formacao as Formacao;
+            setFormacao(REGRAS_FORMACAO[formacaoDB] ? formacaoDB : "4-3-3");
+            
+            const titularsDB = dados.titularesIds;
+            setTitularesIds(Array.isArray(titularsDB) && titularsDB.length === 11 ? titularsDB : Array(11).fill(null));
+          }
+          setCarregando(false);
+        });
+
+        // 2. OUVINDO O CAMPEONATO EM TEMPO REAL (Para atualizar os próximos jogos)
+        unsubGame = onSnapshot(doc(db, "game", "state"), (gameSnap) => {
           if (gameSnap.exists()) {
             const gameData = gameSnap.data();
             const schedule = gameData.schedule || [];
             
-            // AUTO-CURA DA PREVISÃO
             const indexNaoSimulada = schedule.findIndex((r: any) => r.jogos[0]?.homeScore == null);
             const rodadaVerdadeira = indexNaoSimulada !== -1 ? indexNaoSimulada + 1 : schedule.length;
             
@@ -88,21 +96,24 @@ export default function Dashboard() {
                    const adversarioId = isCasa ? meuJogo.awayId : meuJogo.homeId;
                    const adversarioNome = gameData.teams?.find((t: any) => t.id === adversarioId)?.nome || "Desconhecido";
                    
-                   proximos.push({
-                     rodada: i + 1,
-                     adversarioNome: adversarioNome,
-                     isCasa: isCasa
-                   });
+                   proximos.push({ rodada: i + 1, adversarioNome: adversarioNome, isCasa: isCasa });
                  }
                }
             }
             setProximosJogos(proximos);
           }
-        }
-        setCarregando(false);
-      } else navigate("/");
+        });
+
+      } else {
+        navigate("/");
+      }
     });
-    return () => unsubscribe();
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubUser) unsubUser();
+      if (unsubGame) unsubGame();
+    };
   }, [navigate]);
 
   const reservas = useMemo(() => elenco.filter(j => !titularesIds.includes(j.id)), [elenco, titularesIds]);
@@ -123,9 +134,7 @@ export default function Dashboard() {
       const aNativo = a.posicao === posicaoModal ? 1 : 0;
       const bNativo = b.posicao === posicaoModal ? 1 : 0;
       
-      if (aNativo !== bNativo) {
-        return bNativo - aNativo; 
-      }
+      if (aNativo !== bNativo) return bNativo - aNativo; 
       return b.overall - a.overall;
     });
   }, [reservas, posicoesAceitas, posicaoModal]);
@@ -394,7 +403,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Removemos o hidden xl:flex para aparecer sempre, apenas alinhando com a margem do flexbox */}
             <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl flex-1 flex flex-col">
               <h3 className="text-neutral-500 font-black uppercase tracking-widest text-[10px] sm:text-xs border-b border-neutral-800 pb-2 mb-4">Próximos Confrontos</h3>
               {proximosJogos.length === 0 ? (

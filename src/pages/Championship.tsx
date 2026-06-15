@@ -33,10 +33,12 @@ export default function Championship() {
     return time ? time.nome : "Time não encontrado";
   };
 
-  // ==========================================
-  // TELA DE CELEBRAÇÃO (ENCERRAMENTO PADRÃO BRASILEIRÃO)
-  // ==========================================
-  if (gameState.phase === 'FINISHED' || gameState.currentRound > 38) {
+  // MATEMÁTICA DINÂMICA
+  const totalTeams = (gameState as any)?.totalTeams || 20;
+  const totalRounds = (totalTeams - 1) * 2;
+  const midSeason = totalTeams - 1;
+
+  if (gameState.phase === 'FINISHED' || gameState.currentRound > totalRounds) {
     const standings = gameState.standings || [];
     const campeao = standings[0];
     
@@ -204,18 +206,17 @@ export default function Championship() {
   // ==========================================
   const isReady = gameState.playersReady?.includes(currentUserUid || '');
   
-  // AUTO-CURA NA UI: Ignora o currentRound e acha a rodada verdadeira
-  const indexNaoSimulada = gameState.schedule?.findIndex((r: any) => r.jogos[0]?.homeScore == null) ?? 0;
-  const rodadaIndex = indexNaoSimulada !== -1 ? indexNaoSimulada : 37;
+  const indexNaoSimulada = gameState.schedule?.findIndex((r: any) => r.jogos[0]?.homeScore == null) ?? -1;
+  const rodadaIndex = indexNaoSimulada !== -1 ? indexNaoSimulada : (totalRounds - 1);
   const rodadaVerdadeira = rodadaIndex + 1;
 
-  const jogosDaRodada = gameState.schedule[rodadaIndex]?.jogos || [];
+  const jogosDaRodada = gameState.schedule?.[rodadaIndex]?.jogos || [];
   const meuProximoJogo = jogosDaRodada.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
 
   const rodadaAnteriorIndex = rodadaIndex - 1;
   let meuUltimoJogo = null;
   if (rodadaAnteriorIndex >= 0) {
-    const jogosAnteriores = gameState.schedule[rodadaAnteriorIndex]?.jogos || [];
+    const jogosAnteriores = gameState.schedule?.[rodadaAnteriorIndex]?.jogos || [];
     meuUltimoJogo = jogosAnteriores.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
   }
 
@@ -225,12 +226,10 @@ export default function Championship() {
         <div className="text-center md:text-left">
           <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">Campeonato Brasileiro</h1>
           <p className="text-cyan-400 font-bold tracking-widest uppercase text-xs sm:text-sm mt-1">
-            {/* AGORA ELE EXIBE A RODADA CORRETA */}
-            RODADA {rodadaVerdadeira} DE 38
+            RODADA {rodadaVerdadeira} DE {totalRounds}
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-          {/* NOVO: Botão de Ver Escalação agora aparece no mobile (sem hidden) */}
           <button onClick={() => navigate('/dashboard')} className="w-full sm:w-auto px-4 sm:px-6 py-3 bg-neutral-900 hover:bg-neutral-800 text-fifa-gray-light hover:text-white font-black uppercase tracking-widest rounded-lg transition-colors border border-neutral-800 shadow-lg text-[10px] sm:text-sm">
             ← Escalação
           </button>
@@ -257,12 +256,11 @@ export default function Championship() {
         
         <div className="xl:col-span-2 space-y-8">
           <div className="bg-neutral-900 p-4 sm:p-8 rounded-xl border border-neutral-800 shadow-2xl flex flex-col items-center text-center relative overflow-hidden">
-            <div className={`absolute top-0 left-0 w-full h-2 bg-linear-to-r ${gameState.currentRound > 19 ? 'from-purple-600 to-purple-300' : 'from-yellow-600 to-yellow-300'}`}></div>
+            <div className={`absolute top-0 left-0 w-full h-2 bg-linear-to-r ${rodadaVerdadeira > midSeason ? 'from-purple-600 to-purple-300' : 'from-yellow-600 to-yellow-300'}`}></div>
             <h2 className="text-xs sm:text-sm font-black text-neutral-500 mb-6 sm:mb-8 uppercase tracking-widest">
-              {gameState.currentRound > 19 ? 'Fase de Returno (2ª Metade)' : 'O Seu Próximo Confronto'}
+              {rodadaVerdadeira > midSeason ? 'Fase de Returno (2ª Metade)' : 'O Seu Próximo Confronto'}
             </h2>
             
-            {/* NOVO: Ajuste de espaçamento e tamanho de fontes no confronto */}
             <div className="flex items-center justify-center gap-2 sm:gap-6 w-full mb-8 sm:mb-10">
               <div className="flex-1 text-right">
                 <span className="font-black text-lg sm:text-2xl md:text-4xl text-white block uppercase tracking-tighter wrap-break-word">{meuProximoJogo ? getNomeClube(meuProximoJogo.homeId) : '...'}</span>
