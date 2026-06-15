@@ -5,19 +5,12 @@ import { doc, onSnapshot, updateDoc, getDoc } from "firebase/firestore";
 import { type GameState, type Jogador } from "../types";
 import { type EventoPartida, simularPartidaV2, escalarBot } from "../services/matchEngine";
 
+// ... (interfaces JogoAoVivo se mantêm iguais) ...
 interface JogoAoVivo {
-  timeA: string;
-  timeB: string;
-  nomeTimeA: string;
-  nomeTimeB: string;
-  golsCasaFinal: number;
-  golsForaFinal: number;
-  golsCasaLive: number;
-  golsForaLive: number;
-  relatorioFinal: EventoPartida[];
-  eventosLive: EventoPartida[];
-  pressaoFinal: { minuto: number, valor: number }[];
-  pressaoLive: { minuto: number, valor: number }[]; 
+  timeA: string; timeB: string; nomeTimeA: string; nomeTimeB: string;
+  golsCasaFinal: number; golsForaFinal: number; golsCasaLive: number; golsForaLive: number;
+  relatorioFinal: EventoPartida[]; eventosLive: EventoPartida[];
+  pressaoFinal: { minuto: number, valor: number }[]; pressaoLive: { minuto: number, valor: number }[]; 
 }
 
 export default function Matches() {
@@ -33,52 +26,57 @@ export default function Matches() {
   const [countdownToStart, setCountdownToStart] = useState<number | null>(null);
   const [simulandoMagicamente, setSimulandoMagicamente] = useState(false);
   const [erroSimulacao, setErroSimulacao] = useState<string | null>(null);
+  const [preparando, setPreparando] = useState(false);
   
   const rodadaEsperadaRef = useRef<number | null>(null);
 
+  // 1. AUTO-CURA: O Listener agora é limpo e independente
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "game", "state"), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data() as GameState;
-        setGameState(data);
-        
-        if (data.schedule) {
-          const indexNaoSimulada = data.schedule.findIndex((r: any) => r.jogos[0]?.homeScore == null);
-          const rodadaAlvo = indexNaoSimulada !== -1 ? indexNaoSimulada : data.schedule.length;
-
-          if (rodadaEsperadaRef.current === null) {
-            rodadaEsperadaRef.current = rodadaAlvo;
-          } else if (rodadaEsperadaRef.current < rodadaAlvo && !simulacaoAoVivo) {
-            iniciarPlayback(data, rodadaEsperadaRef.current);
-            rodadaEsperadaRef.current = rodadaAlvo; 
-          }
-
-          if (rodadaAlvo === (data.currentRound - 1) && data.teams && (data as any).playersInLive) {
-            const totalUsers = data.teams.filter((t: any) => t.isUser).length;
-            const pessoasNaTV = (data as any).playersInLive.length;
-
-            if (totalUsers > 0 && pessoasNaTV >= totalUsers && countdownToStart === null && !simulandoMagicamente && !simulacaoAoVivo && !erroSimulacao) {
-              setCountdownToStart(10);
-            }
-          }
-        }
-      }
+      if (docSnap.exists()) setGameState(docSnap.data() as GameState);
     });
     return () => unsub();
-  }, [simulacaoAoVivo, countdownToStart, simulandoMagicamente, erroSimulacao]);
+  }, []);
+
+  // 2. AUTO-CURA: A lógica que dispara a partida sem depender de currentRound
+  useEffect(() => {
+    if (!gameState || !gameState.schedule) return;
+    const data = gameState;
+    
+    // CORREÇÃO TYPESCRIPT: Encadeamento opcional (?.) e Fallback (??)
+    const indexNaoSimulada = data.schedule?.findIndex((r: any) => r.jogos[0]?.homeScore == null) ?? -1;
+    const rodadaAlvo = indexNaoSimulada !== -1 ? indexNaoSimulada : (data.schedule?.length ?? 0);
+
+    if (rodadaEsperadaRef.current === null) {
+      rodadaEsperadaRef.current = rodadaAlvo;
+    } else if (rodadaEsperadaRef.current < rodadaAlvo && !simulacaoAoVivo) {
+      iniciarPlayback(data, rodadaEsperadaRef.current);
+      rodadaEsperadaRef.current = rodadaAlvo; 
+      setPreparando(false); 
+    }
+
+    if (data.teams && (data as any).playersInLive) {
+      const totalUsers = data.teams.filter((t: any) => t.isUser).length;
+      const pessoasNaTV = (data as any).playersInLive.length;
+
+      if (totalUsers > 0 && pessoasNaTV >= totalUsers && countdownToStart === null && !simulandoMagicamente && !simulacaoAoVivo && !erroSimulacao && !preparando) {
+        setCountdownToStart(10);
+      }
+    }
+  }, [gameState, simulacaoAoVivo, countdownToStart, simulandoMagicamente, erroSimulacao, preparando]);
 
   useEffect(() => {
     if (countdownToStart === null) return;
-    
     if (countdownToStart <= 0) {
       setCountdownToStart(null);
+      setPreparando(true); 
+      
       const liderId = gameState?.teams?.filter(t => t.isUser)[0]?.id;
       if (currentUserUid === liderId && !simulandoMagicamente) {
         executarSimulacaoAutomatica();
       }
       return;
     }
-    
     const timer = setTimeout(() => setCountdownToStart(prev => prev! - 1), 1000);
     return () => clearTimeout(timer);
   }, [countdownToStart]);
@@ -89,9 +87,11 @@ export default function Matches() {
     setErroSimulacao(null); 
 
     try {
-      const rodadaIndex = gameState.currentRound - 1;
+      // 3. AUTO-CURA: Localiza a rodada VERDADEIRA diretamente pelo calendário
+      const rodadaIndex = gameState.schedule.findIndex((r: any) => r.jogos[0]?.homeScore == null);
+      if (rodadaIndex === -1) return;
       const rodadaAtualData = gameState.schedule[rodadaIndex];
-      if (!rodadaAtualData) return;
+      const rodadaVerdadeira = rodadaIndex + 1; // Se index = 19, rodada verdadeira = 20
       
       const jogos = rodadaAtualData.jogos;
       let novosStandings = [...gameState.standings];
@@ -230,13 +230,13 @@ export default function Matches() {
       let updatedSchedule = gameState.schedule.map((rodada, index) => index === rodadaIndex ? { jogos: jogos } : rodada);
       let proximaFase = gameState.phase;
 
-      if (gameState.currentRound === 19) proximaFase = 'TRANSFER_WINDOW';
-      else if (gameState.currentRound === 38) proximaFase = 'FINISHED';
+      if (rodadaVerdadeira === 19) proximaFase = 'TRANSFER_WINDOW';
+      else if (rodadaVerdadeira === 38) proximaFase = 'FINISHED';
 
       await updateDoc(doc(db, "game", "state"), {
         schedule: updatedSchedule, 
         standings: novosStandings, 
-        currentRound: gameState.currentRound + 1,
+        currentRound: rodadaVerdadeira + 1,
         phase: proximaFase, 
         playersReady: [],
         playersInLive: [] 
@@ -245,6 +245,7 @@ export default function Matches() {
     } catch (error) {
       console.error("Erro na Simulação Automática", error);
       setErroSimulacao((error as Error).message);
+      setPreparando(false); // Desliga a tela de processamento em caso de erro
     } finally {
       setSimulandoMagicamente(false);
     }
@@ -354,6 +355,13 @@ export default function Matches() {
                   Aguardar Correção
                 </button>
               </div>
+            ) : preparando ? (
+              // NOVO: Tela animada exibindo que o sistema está gerando a partida
+              <div className="animate-fade-in">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 border-4 border-neutral-800 border-t-fifa-green rounded-full animate-spin mx-auto mb-4 sm:mb-6"></div>
+                <h2 className="text-xl sm:text-3xl text-fifa-green font-black uppercase tracking-widest animate-pulse">Gerando Lances...</h2>
+                <p className="text-neutral-500 text-[10px] sm:text-xs mt-3 font-bold uppercase tracking-widest">A inteligência do servidor está calculando a partida. Prepare o coração!</p>
+              </div>
             ) : countdownToStart !== null ? (
               <div className="animate-fade-in">
                  <h2 className="text-2xl sm:text-4xl text-yellow-500 font-black animate-pulse tracking-widest">TODOS PRONTOS!</h2>
@@ -462,16 +470,21 @@ export default function Matches() {
                 {jogo.eventosLive.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-neutral-600 italic font-bold text-sm sm:text-lg tracking-widest text-center">A bola está rolando...</div>
                 ) : (
-                  <div className="space-y-3 sm:space-y-4">
-                    {jogo.eventosLive.map((evento, idx) => (
-                      <div key={idx} className={`border-l-4 pl-3 sm:pl-4 py-2 sm:py-3 flex items-start gap-3 sm:gap-4 animate-fade-in
-                        ${evento.tipo === 'GOL' ? 'border-fifa-green bg-fifa-green/10' : 
-                          evento.tipo === 'CARTAO_VERMELHO' ? 'border-fifa-red bg-fifa-red/10' : 
-                          evento.tipo === 'CARTAO_AMARELO' ? 'border-yellow-500 bg-yellow-500/10' : 'border-fifa-blue bg-fifa-blue/10'}`}>
-                        <span className="font-black text-white w-8 sm:w-12 shrink-0 text-sm sm:text-xl">{evento.minuto}'</span>
-                        <span className="text-neutral-300 font-medium leading-snug sm:leading-tight text-xs sm:text-lg mt-0.5">{evento.texto}</span>
-                      </div>
-                    ))}
+                  <div className="space-y-3 sm:space-y-4 flex flex-col">
+                    {jogo.eventosLive.map((evento, idx) => {
+                      const isMandante = evento.time === 'CASA';
+                      return (
+                        <div key={idx} className={`flex w-full ${isMandante ? 'justify-start' : 'justify-end'} animate-fade-in`}>
+                          <div className={`max-w-[85%] sm:max-w-[70%] border-l-4 pl-3 sm:pl-4 py-2 sm:py-3 flex items-start gap-3 sm:gap-4 rounded-r-lg
+                            ${evento.tipo === 'GOL' ? 'border-fifa-green bg-fifa-green/10' : 
+                              evento.tipo === 'CARTAO_VERMELHO' ? 'border-fifa-red bg-fifa-red/10' : 
+                              evento.tipo === 'CARTAO_AMARELO' ? 'border-yellow-500 bg-yellow-500/10' : 'border-fifa-blue bg-fifa-blue/10'}`}>
+                            <span className="font-black text-white w-8 sm:w-10 shrink-0 text-sm sm:text-xl text-center">{evento.minuto}'</span>
+                            <span className="text-neutral-300 font-medium leading-snug sm:leading-tight text-xs sm:text-base mt-0.5">{evento.texto}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

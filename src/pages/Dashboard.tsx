@@ -4,6 +4,7 @@ import { db, auth } from "../services/firebase";
 import { doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import type { Jogador } from "../types";
+import toast from 'react-hot-toast';
 
 type Formacao = "4-3-3" | "4-4-2" | "3-5-2" | "4-5-1";
 const REGRAS_FORMACAO: Record<Formacao, { DEF: number; MEI: number; ATA: number }> = {
@@ -20,6 +21,12 @@ const POSICOES_PERMITIDAS: Record<string, string[]> = {
   "ATA": ["ATA", "MEI"]
 };
 
+interface ProximoJogo {
+  rodada: number;
+  adversarioNome: string;
+  isCasa: boolean;
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const [elenco, setElenco] = useState<Jogador[]>([]);
@@ -35,6 +42,10 @@ export default function Dashboard() {
   const [posicaoModal, setPosicaoModal] = useState<string>('');
   const [jogadorSendoSubstituido, setJogadorSendoSubstituido] = useState<string | null>(null);
 
+  const [proximosJogos, setProximosJogos] = useState<ProximoJogo[]>([]);
+  const [taticasSalvas, setTaticasSalvas] = useState<Record<string, (string | null)[]>>({});
+  const [isSalvandoTatica, setIsSalvandoTatica] = useState(false);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -49,12 +60,44 @@ export default function Dashboard() {
           setNomeTime(dados.nomeTime || "Time Desconhecido");
           setNomeTecnico(dados.nomeTecnico || "Técnico");
           setXpTotal(dados.xpTotal || 0); 
+          setTaticasSalvas(dados.taticasSalvas || {}); 
           
           const formacaoDB = dados.formacao as Formacao;
           setFormacao(REGRAS_FORMACAO[formacaoDB] ? formacaoDB : "4-3-3");
           
           const titularsDB = dados.titularesIds;
           setTitularesIds(Array.isArray(titularsDB) && titularsDB.length === 11 ? titularsDB : Array(11).fill(null));
+
+          const gameSnap = await getDoc(doc(db, "game", "state"));
+          if (gameSnap.exists()) {
+            const gameData = gameSnap.data();
+            const schedule = gameData.schedule || [];
+            
+            // AUTO-CURA DA PREVISÃO
+            const indexNaoSimulada = schedule.findIndex((r: any) => r.jogos[0]?.homeScore == null);
+            const rodadaVerdadeira = indexNaoSimulada !== -1 ? indexNaoSimulada + 1 : schedule.length;
+            
+            const proximos: ProximoJogo[] = [];
+            
+            for (let i = rodadaVerdadeira - 1; i < Math.min(rodadaVerdadeira + 2, schedule.length); i++) {
+               const rodadaData = schedule[i];
+               if (rodadaData && rodadaData.jogos) {
+                 const meuJogo = rodadaData.jogos.find((j: any) => j.homeId === user.uid || j.awayId === user.uid);
+                 if (meuJogo) {
+                   const isCasa = meuJogo.homeId === user.uid;
+                   const adversarioId = isCasa ? meuJogo.awayId : meuJogo.homeId;
+                   const adversarioNome = gameData.teams?.find((t: any) => t.id === adversarioId)?.nome || "Desconhecido";
+                   
+                   proximos.push({
+                     rodada: i + 1,
+                     adversarioNome: adversarioNome,
+                     isCasa: isCasa
+                   });
+                 }
+               }
+            }
+            setProximosJogos(proximos);
+          }
         }
         setCarregando(false);
       } else navigate("/");
@@ -71,7 +114,6 @@ export default function Dashboard() {
     return jogador && !jogador.statusFisico?.lesionado && !jogador.statusFisico?.suspenso;
   });
 
-  // 🚨 CORREÇÃO: Todos os Hooks (useMemo) precisam ficar ANTES do if (carregando) return...
   const posicoesAceitas = POSICOES_PERMITIDAS[posicaoModal] || [posicaoModal];
   
   const jogadoresParaModal = useMemo(() => {
@@ -93,6 +135,41 @@ export default function Dashboard() {
     await updateDoc(doc(db, "usuarios", auth.currentUser.uid), { titularesIds, formacao });
     await updateDoc(doc(db, "game", "state"), { playersReady: arrayUnion(auth.currentUser.uid) });
     navigate('/championship'); 
+  };
+
+  const salvarTaticaComoPadrao = async () => {
+    if (!auth.currentUser) return;
+    if (titularesIds.includes(null)) {
+      toast.error("Preencha todos os 11 jogadores antes de salvar a tática.");
+      return;
+    }
+
+    setIsSalvandoTatica(true);
+    try {
+      const novasTaticas = { ...taticasSalvas, [formacao]: titularesIds };
+      await updateDoc(doc(db, "usuarios", auth.currentUser.uid), { 
+        taticasSalvas: novasTaticas,
+        titularesIds: titularesIds,
+        formacao: formacao
+      });
+      setTaticasSalvas(novasTaticas);
+      toast.success(`Tática ${formacao} salva como padrão!`);
+    } catch (error) {
+      toast.error("Erro ao salvar tática.");
+    } finally {
+      setIsSalvandoTatica(false);
+    }
+  };
+
+  const mudarFormacao = (novaFormacao: Formacao) => {
+    setFormacao(novaFormacao);
+    if (taticasSalvas[novaFormacao]) {
+      setTitularesIds(taticasSalvas[novaFormacao]);
+      toast.success(`Tática ${novaFormacao} recuperada da memória.`);
+    } else {
+      setTitularesIds(Array(11).fill(null));
+      toast("Organize os jogadores para esta nova tática.", { icon: '📋' });
+    }
   };
 
   const abrirModal = (posicao: string, index: number, idAtual: string | null = null) => {
@@ -164,6 +241,8 @@ export default function Dashboard() {
           const isImprovisado = jogador && jogador.posicao !== posicao;
           const overallExibido = jogador ? (isImprovisado ? Math.floor(jogador.overall * 0.85) : jogador.overall) : 0;
           
+          const isPendurado = jogador?.statusFisico && (jogador.statusFisico as any).amarelos === 1;
+          
           return (
             <div key={slotOcupado} onClick={() => abrirModal(posicao, slotOcupado, jogador?.id || null)} className="relative w-16 h-24 sm:w-24 sm:h-37.5 cursor-pointer transition-all duration-300 hover:-translate-y-2 hover:shadow-[0_15px_30px_rgba(0,0,0,0.6)] group">
               {jogador ? (
@@ -181,6 +260,7 @@ export default function Dashboard() {
                       {renderEnergia(jogador.statusFisico?.cansaco ?? 1)}
                       {jogador.statusFisico?.lesionado && <span className="text-[10px] drop-shadow-md">🏥</span>}
                       {jogador.statusFisico?.suspenso && <span className="text-[10px] drop-shadow-md">🟥</span>}
+                      {isPendurado && <span className="text-[10px] drop-shadow-md" title="Pendurado (1 Amarelo)">🟨</span>}
                       {isImprovisado && <span className="text-[10px] drop-shadow-md text-red-600" title="Improvisado (-15% OVR)">⚠️</span>}
                     </div>
                   </div>
@@ -199,7 +279,6 @@ export default function Dashboard() {
     );
   };
 
-  // 🚨 O RETURN ANTECIPADO FICA ABAIXO DE TODOS OS HOOKS
   if (carregando) return <div className="h-screen bg-neutral-950 flex items-center justify-center text-yellow-400 font-bold uppercase tracking-widest animate-pulse">Carregando Vestiário...</div>;
 
   const nivelTecnico = Math.floor(xpTotal / 100) + 1;
@@ -208,41 +287,57 @@ export default function Dashboard() {
     <div className="min-h-screen bg-neutral-950 text-neutral-200 p-4 md:p-8 flex flex-col font-fifa">
       <div className="max-w-7xl mx-auto w-full space-y-6">
         
-        <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-2xl">
-          <div className="flex items-center gap-6">
-            <div className="w-16 h-16 bg-neutral-950 border-2 border-fifa-blue rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(42,57,141,0.4)]">
-              <span className="text-2xl font-black text-fifa-blue">{nivelTecnico}</span>
+        {/* Cabeçalho do Dashboard */}
+        <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-2xl gap-4 md:gap-0">
+          <div className="flex items-center gap-4 sm:gap-6 w-full md:w-auto">
+            <div className="w-12 h-12 sm:w-16 sm:h-16 shrink-0 bg-neutral-950 border-2 border-fifa-blue rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(42,57,141,0.4)]">
+              <span className="text-xl sm:text-2xl font-black text-fifa-blue">{nivelTecnico}</span>
             </div>
-            <div>
-              <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter">{nomeTime}</h1>
-              <p className="text-neutral-400 font-bold uppercase tracking-widest text-xs mt-1">Técnico: {nomeTecnico} • <span className="text-fifa-red">{xpTotal} XP</span></p>
+            <div className="overflow-hidden w-full">
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-white uppercase tracking-tighter truncate">{nomeTime}</h1>
+              <p className="text-neutral-400 font-bold uppercase tracking-widest text-[10px] sm:text-xs mt-1 truncate">Téc: {nomeTecnico} • <span className="text-fifa-red">{xpTotal} XP</span></p>
             </div>
           </div>
-          <div className="flex gap-4 mt-4 md:mt-0 items-center w-full md:w-auto">
-            <select value={formacao} onChange={(e) => { setFormacao(e.target.value as Formacao); setTitularesIds(Array(11).fill(null)); }} className="flex-1 md:flex-none bg-neutral-950 text-white p-4 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-fifa-blue">
-              <option value="4-3-3">Tática 4-3-3</option>
-              <option value="4-4-2">Tática 4-4-2</option>
-              <option value="3-5-2">Tática 3-5-2</option>
-              <option value="4-5-1">Tática 4-5-1</option>
-            </select>
-            <button onClick={salvarEscalacao} disabled={!isValido} className={`flex-1 md:flex-none px-8 py-4 rounded-lg font-black uppercase tracking-widest transition-all ${isValido ? 'bg-fifa-green text-white hover:bg-opacity-90 shadow-[0_0_15px_rgba(60,172,59,0.4)]' : 'bg-neutral-800 text-neutral-600 cursor-not-allowed'}`}>
+          
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mt-2 md:mt-0 w-full md:w-auto">
+            <div className="flex gap-2 w-full sm:w-auto">
+              <select value={formacao} onChange={(e) => mudarFormacao(e.target.value as Formacao)} className="flex-1 bg-neutral-950 text-white p-3 sm:p-4 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-fifa-blue text-xs sm:text-sm">
+                <option value="4-3-3">Tática 4-3-3</option>
+                <option value="4-4-2">Tática 4-4-2</option>
+                <option value="3-5-2">Tática 3-5-2</option>
+                <option value="4-5-1">Tática 4-5-1</option>
+              </select>
+              <button 
+                onClick={salvarTaticaComoPadrao} 
+                disabled={isSalvandoTatica || !isValido}
+                title="Salvar esta escalação como Padrão"
+                className={`flex items-center justify-center px-4 rounded-lg border transition-colors ${!isValido ? 'bg-neutral-800 border-neutral-800 text-neutral-600 cursor-not-allowed' : 'bg-neutral-900 border-fifa-blue text-fifa-blue hover:bg-fifa-blue hover:text-white shadow-[0_0_10px_rgba(42,57,141,0.3)]'}`}
+              >
+                💾
+              </button>
+            </div>
+            
+            <button onClick={salvarEscalacao} disabled={!isValido} className={`w-full sm:w-auto px-4 sm:px-8 py-3 sm:py-4 rounded-lg font-black uppercase tracking-widest transition-all text-xs sm:text-base ${isValido ? 'bg-fifa-green text-white hover:bg-opacity-90 shadow-[0_0_15px_rgba(60,172,59,0.4)]' : 'bg-neutral-800 text-neutral-600 cursor-not-allowed'}`}>
               IR PARA O JOGO
             </button>
           </div>
         </div>
 
+        {/* Layout do Conteúdo Principal */}
         <div className="flex flex-col xl:flex-row gap-6">
-          <div className="w-full xl:w-72 flex flex-col gap-4">
-            <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-xl">
-              <h3 className="text-neutral-500 font-black uppercase tracking-widest text-xs border-b border-neutral-800 pb-2 mb-4">Análise do Elenco</h3>
+          
+          {/* Blocos de Informação (Análise, Plantel e Próximos Jogos) - Ordem 2 no Mobile, Ordem 1 no PC */}
+          <div className="w-full xl:w-72 flex flex-col gap-4 order-2 xl:order-1 mt-4 xl:mt-0">
+            <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl">
+              <h3 className="text-neutral-500 font-black uppercase tracking-widest text-[10px] sm:text-xs border-b border-neutral-800 pb-2 mb-4">Análise do Elenco</h3>
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-neutral-400">Geral</span>
-                  <span className={`text-2xl font-black ${isValido ? 'text-fifa-green' : 'text-neutral-600'}`}>{isValido ? ovrGeral : '--'}</span>
+                  <span className="text-xs sm:text-sm font-bold text-neutral-400">Geral</span>
+                  <span className={`text-xl sm:text-2xl font-black ${isValido ? 'text-fifa-green' : 'text-neutral-600'}`}>{isValido ? ovrGeral : '--'}</span>
                 </div>
                 <div className="space-y-2 pt-2 border-t border-neutral-800/50">
                   <div>
-                    <div className="flex justify-between text-xs font-bold mb-1">
+                    <div className="flex justify-between text-[10px] sm:text-xs font-bold mb-1">
                       <span className="text-fifa-red">Ataque</span>
                       <span className="text-white">{ovrAtaque}</span>
                     </div>
@@ -251,7 +346,7 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div>
-                    <div className="flex justify-between text-xs font-bold mb-1">
+                    <div className="flex justify-between text-[10px] sm:text-xs font-bold mb-1">
                       <span className="text-fifa-green">Meio-Campo</span>
                       <span className="text-white">{ovrMeio}</span>
                     </div>
@@ -260,43 +355,72 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div>
-                    <div className="flex justify-between text-xs font-bold mb-1">
+                    <div className="flex justify-between text-[10px] sm:text-xs font-bold mb-1">
                       <span className="text-fifa-blue">Defesa</span>
                       <span className="text-white">{ovrDefesa}</span>
                     </div>
                     <div className="w-full bg-neutral-950 h-1.5 rounded-full overflow-hidden">
                       <div className="bg-fifa-blue h-full rounded-full transition-all" style={{ width: `${Math.min(100, ovrDefesa)}%` }}></div>
                     </div>
-                  </div>,
+                  </div>
                 </div>
               </div>
               {!isValido && (
                 <div className="mt-6 p-3 bg-fifa-red/10 border border-fifa-red/30 rounded-lg text-center">
-                  <p className="text-[10px] text-fifa-red font-bold uppercase tracking-widest">
-                    {titularesIds.includes(null) ? "Escalação Incompleta" : "Remova atletas inaptos (DM/Suspensos) da titularidade"}
+                  <p className="text-[8px] sm:text-[10px] text-fifa-red font-bold uppercase tracking-widest">
+                    {titularesIds.includes(null) ? "Escalação Incompleta" : "Remova atletas inaptos (DM/Suspensos)"}
                   </p>
                 </div>
               )}
             </div>
             
-            <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-xl flex-1 flex flex-col">
-              <h3 className="text-neutral-500 font-black uppercase tracking-widest text-xs border-b border-neutral-800 pb-2 mb-4">Plantel Atual</h3>
+            <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl">
+              <h3 className="text-neutral-500 font-black uppercase tracking-widest text-[10px] sm:text-xs border-b border-neutral-800 pb-2 mb-4">Plantel Atual</h3>
               <div className="flex justify-between items-center mb-2">
-                <span className="text-sm font-bold text-neutral-400">Atletas Aptos</span>
-                <span className="text-sm font-black text-fifa-green">{reservas.filter(r => !r.statusFisico?.lesionado && !r.statusFisico?.suspenso).length}</span>
+                <span className="text-[10px] sm:text-xs font-bold text-neutral-400">Atletas Aptos</span>
+                <span className="text-xs sm:text-sm font-black text-fifa-green">{reservas.filter(r => !r.statusFisico?.lesionado && !r.statusFisico?.suspenso).length}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm font-bold text-neutral-400">Dpto. Médico (DM)</span>
-                <span className="text-sm font-black text-fifa-blue">{elenco.filter(r => r.statusFisico?.lesionado).length}</span>
+                <span className="text-[10px] sm:text-xs font-bold text-neutral-400">Dpto. Médico (DM)</span>
+                <span className="text-xs sm:text-sm font-black text-fifa-blue">{elenco.filter(r => r.statusFisico?.lesionado).length}</span>
               </div>
               <div className="flex justify-between items-center mt-2">
-                <span className="text-sm font-bold text-neutral-400">Suspensos</span>
-                <span className="text-sm font-black text-fifa-red">{elenco.filter(r => r.statusFisico?.suspenso).length}</span>
+                <span className="text-[10px] sm:text-xs font-bold text-neutral-400">Suspensos (🟥)</span>
+                <span className="text-xs sm:text-sm font-black text-fifa-red">{elenco.filter(r => r.statusFisico?.suspenso).length}</span>
               </div>
+              <div className="flex justify-between items-center mt-2 border-t border-neutral-800/50 pt-2">
+                <span className="text-[10px] sm:text-xs font-bold text-neutral-400">Pendurados (🟨)</span>
+                <span className="text-xs sm:text-sm font-black text-yellow-500">{elenco.filter(r => r.statusFisico && (r.statusFisico as any).amarelos === 1 && !r.statusFisico.suspenso && !r.statusFisico.lesionado).length}</span>
+              </div>
+            </div>
+
+            {/* Removemos o hidden xl:flex para aparecer sempre, apenas alinhando com a margem do flexbox */}
+            <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl flex-1 flex flex-col">
+              <h3 className="text-neutral-500 font-black uppercase tracking-widest text-[10px] sm:text-xs border-b border-neutral-800 pb-2 mb-4">Próximos Confrontos</h3>
+              {proximosJogos.length === 0 ? (
+                 <p className="text-[10px] text-neutral-500 italic">Sem jogos agendados.</p>
+              ) : (
+                 <ul className="space-y-3">
+                   {proximosJogos.map((jogo, idx) => (
+                     <li key={idx} className="flex justify-between items-center bg-neutral-950 p-2 sm:p-3 rounded-lg border border-neutral-800">
+                       <div>
+                         <span className="text-[8px] sm:text-[10px] text-cyan-400 font-bold uppercase tracking-widest block">Rodada {jogo.rodada}</span>
+                         <span className="text-[10px] sm:text-xs font-black text-white uppercase tracking-tighter truncate max-w-30 block">{jogo.adversarioNome}</span>
+                       </div>
+                       <div className="shrink-0">
+                         <span className={`text-[8px] sm:text-[10px] px-2 py-1 rounded font-black tracking-widest ${jogo.isCasa ? 'bg-yellow-900/30 text-yellow-500 border border-yellow-700/50' : 'bg-neutral-800 text-neutral-400'}`}>
+                           {jogo.isCasa ? 'CASA' : 'FORA'}
+                         </span>
+                       </div>
+                     </li>
+                   ))}
+                 </ul>
+              )}
             </div>
           </div>
 
-          <div className="relative flex-1 min-h-150 md:min-h-187.5 bg-linear-to-b from-[#0a2e1c] to-[#041a0e] rounded-xl border-4 border-white/10 overflow-hidden flex flex-col justify-evenly py-6 sm:py-8 shadow-2xl">
+          {/* Campo de Futebol - Ordem 1 no Mobile, Ordem 2 no PC */}
+          <div className="relative flex-1 min-h-150 md:min-h-187.5 bg-linear-to-b from-[#0a2e1c] to-[#041a0e] rounded-xl border-4 border-white/10 overflow-hidden flex flex-col justify-evenly py-6 sm:py-8 shadow-2xl order-1 xl:order-2">
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-24 border-b-4 border-x-4 border-white/20 rounded-b-xl"></div>
             <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-48 h-24 border-t-4 border-x-4 border-white/20 rounded-t-xl"></div>
             <div className="absolute top-1/2 left-0 w-full border-t-4 border-white/20"></div>
@@ -313,15 +437,15 @@ export default function Dashboard() {
 
       {modalAberto && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
-          <div className="bg-neutral-900 border border-neutral-700 rounded-xl w-full max-w-md p-6 shadow-2xl max-h-[80vh] flex flex-col">
+          <div className="bg-neutral-900 border border-neutral-700 rounded-xl w-full max-w-md p-4 sm:p-6 shadow-2xl max-h-[80vh] flex flex-col">
             <div className="flex justify-between items-center mb-4 border-b border-neutral-800 pb-4">
-              <h2 className="text-xl font-black text-white uppercase tracking-wider">Banco <span className="text-cyan-400">{posicaoModal}</span></h2>
-              <button onClick={() => setModalAberto(false)} className="text-neutral-500 hover:text-white font-black text-xl bg-neutral-800 w-8 h-8 rounded-full flex items-center justify-center">X</button>
+              <h2 className="text-lg sm:text-xl font-black text-white uppercase tracking-wider">Banco <span className="text-cyan-400">{posicaoModal}</span></h2>
+              <button onClick={() => setModalAberto(false)} className="text-neutral-500 hover:text-white font-black text-lg bg-neutral-800 w-8 h-8 rounded-full flex items-center justify-center">X</button>
             </div>
             
             <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
               {jogadoresParaModal.length === 0 && (
-                <p className="text-neutral-500 text-center py-8 text-sm font-bold uppercase tracking-widest">Nenhum jogador disponível para improvisar nesta vaga.</p>
+                <p className="text-neutral-500 text-center py-8 text-xs sm:text-sm font-bold uppercase tracking-widest">Nenhum jogador disponível para esta vaga.</p>
               )}
               {jogadoresParaModal.map(j => {
                 const isLesionado = j.statusFisico?.lesionado;
@@ -330,20 +454,22 @@ export default function Dashboard() {
                 
                 const isImprovisadoModal = j.posicao !== posicaoModal;
                 const overallPenalizado = isImprovisadoModal ? Math.floor(j.overall * 0.85) : j.overall;
+                
+                const isPendurado = j.statusFisico && (j.statusFisico as any).amarelos === 1;
 
                 return (
                   <button 
                     key={j.id} 
                     onClick={() => !isBloqueado && confirmarTroca(j.id)} 
                     disabled={isBloqueado}
-                    className={`w-full p-4 rounded-lg flex justify-between items-center transition-all text-left border relative overflow-hidden
+                    className={`w-full p-3 sm:p-4 rounded-lg flex justify-between items-center transition-all text-left border relative overflow-hidden
                       ${isBloqueado ? 'bg-neutral-950 border-neutral-800 opacity-50 cursor-not-allowed grayscale' : 'bg-neutral-800 border-neutral-700 hover:border-yellow-500 cursor-pointer'}
                     `}
                   >
                     {!isBloqueado && <div className={`absolute top-0 left-0 w-1 h-full ${overallPenalizado >= 88 ? 'bg-yellow-500' : 'bg-neutral-500'}`}></div>}
                     <div className="pl-2">
-                      <p className="font-black text-neutral-200">{j.nome}</p>
-                      <div className="text-[10px] text-neutral-400 font-bold uppercase mt-1 flex items-center gap-2 flex-wrap">
+                      <p className="font-black text-sm sm:text-base text-neutral-200">{j.nome}</p>
+                      <div className="text-[8px] sm:text-[10px] text-neutral-400 font-bold uppercase mt-1 flex items-center gap-1 sm:gap-2 flex-wrap">
                         <span>{j.clubeHistorico}</span> 
                         <span className="bg-neutral-800 text-cyan-400 px-1.5 py-0.5 rounded border border-neutral-700">
                           {j.posicao}
@@ -352,11 +478,12 @@ export default function Dashboard() {
                       </div>
                       <div className="flex items-center gap-2 mt-2">
                         {renderEnergia(j.statusFisico?.cansaco ?? 1)}
-                        {isLesionado && <span className="text-[10px] text-orange-500 font-bold ml-1">🏥 INAPTO (Tratamento Médico)</span>}
-                        {isSuspenso && !isLesionado && <span className="text-[10px] text-red-500 font-bold ml-1">🟥 INAPTO (Suspenso 1 Jogo)</span>}
+                        {isLesionado && <span className="text-[8px] sm:text-[10px] text-orange-500 font-bold ml-1">🏥 DM</span>}
+                        {isSuspenso && !isLesionado && <span className="text-[8px] sm:text-[10px] text-red-500 font-bold ml-1">🟥 Suspenso</span>}
+                        {isPendurado && !isBloqueado && <span className="text-[8px] sm:text-[10px] text-yellow-500 font-bold ml-1">🟨 Pendurado</span>}
                       </div>
                     </div>
-                    <span className={`text-sm px-3 py-2 rounded font-black border ${overallPenalizado >= 88 ? 'bg-yellow-900/50 text-yellow-500 border-yellow-700/50' : 'bg-neutral-900 text-white border-neutral-700'}`}>
+                    <span className={`text-xs sm:text-sm px-3 py-2 rounded font-black border ${overallPenalizado >= 88 ? 'bg-yellow-900/50 text-yellow-500 border-yellow-700/50' : 'bg-neutral-900 text-white border-neutral-700'}`}>
                       {overallPenalizado}
                     </span>
                   </button>
@@ -365,8 +492,8 @@ export default function Dashboard() {
             </div>
 
             {jogadorSendoSubstituido && (
-              <button onClick={() => removerDoTime(jogadorSendoSubstituido)} className="mt-4 w-full bg-neutral-950 hover:bg-neutral-800 text-neutral-400 font-bold py-4 rounded-lg border border-neutral-800 transition-colors uppercase tracking-widest text-sm">
-                Remover jogador para o Banco
+              <button onClick={() => removerDoTime(jogadorSendoSubstituido)} className="mt-4 w-full bg-neutral-950 hover:bg-neutral-800 text-neutral-400 font-bold py-3 sm:py-4 rounded-lg border border-neutral-800 transition-colors uppercase tracking-widest text-[10px] sm:text-sm">
+                Remover para o Banco
               </button>
             )}
           </div>

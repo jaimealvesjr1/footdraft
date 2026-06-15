@@ -187,7 +187,8 @@ export default function TransferWindow({ uid }: { uid: string }) {
 
     if (novaFila.length > 0) {
       await updateDoc(doc(db, "game", "state"), {
-        draftTurnUid: novaFila[0], draftOrder: novaFila, currentRound: (gameState.currentRound || 1) + 1
+        draftTurnUid: novaFila[0], 
+        draftOrder: novaFila 
       });
     } else {
       await updateDoc(doc(db, "game", "state"), { draftTurnUid: null, draftOrder: [] });

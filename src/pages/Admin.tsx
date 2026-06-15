@@ -219,16 +219,15 @@ export default function Admin() {
 
   const simularRodadaAtual = async () => {
     if (!gameState || !gameState.schedule || !gameState.standings) return;
-    
     setSalvando(true);
 
     try {
-      const rodadaIndex = gameState.currentRound - 1;
-      const rodadaAtualData = gameState.schedule[rodadaIndex];
+      // AUTO-CURA NA SIMULAÇÃO FORÇADA
+      const rodadaIndex = gameState.schedule.findIndex((r: any) => r.jogos[0]?.homeScore == null);
+      if (rodadaIndex === -1) throw new Error("Campeonato já terminou!");
       
-      if (!rodadaAtualData) {
-        throw new Error("Rodada não encontrada. O Campeonato já terminou?");
-      }
+      const rodadaAtualData = gameState.schedule[rodadaIndex];
+      const rodadaVerdadeira = rodadaIndex + 1;
       
       const jogos = rodadaAtualData.jogos;
       let novosStandings = [...gameState.standings];
@@ -370,16 +369,17 @@ export default function Admin() {
       let proximaFase = gameState.phase;
       let mensagemAlert = "Rodada Simulada com Sucesso!";
 
-      if (gameState.currentRound === 19) {
+      if (rodadaVerdadeira === 19) {
         mensagemAlert = "FIM DO 1º TURNO! Abra a janela de transferências.";
         proximaFase = 'TRANSFER_WINDOW';
-      } else if (gameState.currentRound === 38) {
+      } else if (rodadaVerdadeira === 38) {
         proximaFase = 'FINISHED'; 
         mensagemAlert = "CAMPEONATO ENCERRADO! Rodada final simulada.";
       }
 
       await updateDoc(doc(db, "game", "state"), {
-        schedule: updatedSchedule, standings: novosStandings, currentRound: gameState.currentRound + 1,
+        schedule: updatedSchedule, standings: novosStandings, 
+        currentRound: rodadaVerdadeira + 1, // Conserta o banco
         phase: proximaFase, playersReady: []
       });
 
@@ -420,13 +420,21 @@ export default function Admin() {
   };
 
   const iniciarReturno = async () => {
-    const confirmado = await confirmarAcao("▶️ Iniciar o Returno?");
+    const confirmado = await confirmarAcao("▶️ Iniciar (ou Sincronizar) o Returno?");
     if (!confirmado) return;
 
     setSalvando(true);
     try { 
-      await updateDoc(doc(db, "game", "state"), { phase: 'SECOND_HALF', draftTurnUid: null, draftOrder: [] }); 
-      toast.success("Returno iniciado!"); 
+      const indexNaoSimulada = gameState?.schedule?.findIndex((r: any) => r.jogos[0]?.homeScore == null);
+      const rodadaCorreta = (indexNaoSimulada !== undefined && indexNaoSimulada !== -1) ? indexNaoSimulada + 1 : 20;
+
+      await updateDoc(doc(db, "game", "state"), { 
+        phase: 'SECOND_HALF', 
+        draftTurnUid: null, 
+        draftOrder: [],
+        currentRound: rodadaCorreta
+      }); 
+      toast.success(`Returno sincronizado! O jogo voltou para a Rodada ${rodadaCorreta}`); 
     } catch (error) { 
       toast.error("Erro ao iniciar returno."); 
     } finally { 

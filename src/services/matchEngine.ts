@@ -130,16 +130,27 @@ const sortearJogador = (team: (Jogador | null)[], expulsos: Set<string>, acao: '
   const aptos = team.slice(0, 11).filter((j): j is Jogador => j !== null && !expulsos.has(j.id));
   if (!aptos.length) return null;
 
-  const pesos = aptos.map(j => {
-    const isAtacante = j.posicao === 'ATA';
-    const isDefesa = j.posicao === 'DEF';
-    const isMeio = j.posicao === 'MEI';
+  const pesos = aptos.map((j): number => {
+    const posUpper = j.posicao.toUpperCase();
+    const isGoleiro = posUpper.includes('GOL') || posUpper === 'GL';
+    const isAtacante = posUpper === 'ATA';
+    const isDefesa = posUpper === 'DEF';
+    const isMeio = posUpper === 'MEI';
     
-    if (acao === 'ATAQUE') return isAtacante ? 5 : isMeio ? 3 : 1;
+    // REGRA DE OURO: Goleiro NUNCA participa do sorteio para fazer gol.
+    if (acao === 'ATAQUE') {
+      if (isGoleiro) return 0; 
+      return isAtacante ? 5 : isMeio ? 3 : 1;
+    }
+    
+    // Na Defesa (Faltas/Lesões), o Goleiro tem peso 1 (pode se machucar ou fazer falta)
     return isDefesa ? 4 : isMeio ? 3 : 1;
   });
 
-  let rand = Math.random() * pesos.reduce((a, b) => a + b, 0);
+  const totalPesos = pesos.reduce((a, b) => a + b, 0);
+  if (totalPesos === 0) return null; // Trava de segurança
+
+  let rand = Math.random() * totalPesos;
   return aptos.find((_, i) => (rand -= pesos[i]) <= 0) || aptos[0];
 };
 
