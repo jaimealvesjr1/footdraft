@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { db, auth } from "../services/firebase";
 import { doc, onSnapshot, updateDoc, increment, arrayUnion } from "firebase/firestore";
 import { type GameState } from "../types";
+import toast from 'react-hot-toast'; 
 
 export default function Championship() {
   const navigate = useNavigate();
@@ -152,7 +153,7 @@ export default function Championship() {
                         <td className="py-3 text-center text-neutral-400 font-bold">{time.sg > 0 ? `+${time.sg}` : time.sg}</td>
                         <td className="py-3 text-center">
                            <span className={`text-[10px] px-2 py-1 rounded font-black tracking-widest ${index < 4 ? 'bg-cyan-900/30 text-cyan-400 border border-cyan-800' : index > 15 ? 'bg-red-900/20 text-red-500' : 'bg-neutral-800 text-neutral-400'}`}>
-                             +{calcularPontosTemporada(index)}
+                              +{calcularPontosTemporada(index)}
                            </span>
                         </td>
                       </tr>
@@ -178,10 +179,13 @@ export default function Championship() {
                 try {
                   const userIndex = standings.findIndex(t => t.id === currentUserUid);
                   const xpGanho = userIndex !== -1 ? calcularPontosTemporada(userIndex) : 0;
-                  if (xpGanho > 0) await updateDoc(doc(db, "usuarios", currentUserUid), { xpTotal: increment(xpGanho) });
+                  if (xpGanho > 0) {
+                    await updateDoc(doc(db, "usuarios", currentUserUid), { xpTotal: increment(xpGanho) });
+                    toast.success(`Você resgatou ${xpGanho} XP!`);
+                  }
                   navigate('/dashboard');
                 } catch (error) {
-                  alert("Erro ao resgatar recompensa.");
+                  toast.error("Erro ao resgatar recompensa.");
                   setResgatando(false);
                 }
               }} 
@@ -225,12 +229,10 @@ export default function Championship() {
             ← Ver Escalação
           </button>
           
-          {/* BOTÃO MANTIDO E ATIVADO APENAS QUANDO O JOGADOR DEU CHECK NO VESTIÁRIO */}
           <button 
             disabled={!isReady}
             onClick={async () => {
               if (currentUserUid) {
-                // Registra que o jogador sentou na arquibancada virtual
                 await updateDoc(doc(db, "game", "state"), {
                   playersInLive: arrayUnion(currentUserUid)
                 });

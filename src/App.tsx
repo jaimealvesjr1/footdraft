@@ -4,6 +4,7 @@ import { onAuthStateChanged, type User } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore"; 
 import { auth, db } from "./services/firebase";
 import { type GamePhase } from "./types";
+import { Toaster } from 'react-hot-toast';
 
 // Importações das páginas e componentes
 import Login from "./pages/Login";
@@ -110,13 +111,29 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      {/* Container Principal que ocupa a tela toda */}
       <div className="min-h-screen flex flex-col bg-neutral-950">
         
-        {/* HEADER GLOBAL */}
+        {/* COMPONENTE TOASTER ADICIONADO AQUI: Controla o visual global das notificações */}
+        <Toaster 
+          position="top-right"
+          toastOptions={{
+            duration: 3000,
+            style: {
+              background: '#1a1a1a', // Fundo escuro combinando com seu design
+              color: '#fff',         // Texto branco
+              border: '1px solid #333',
+            },
+            success: {
+              iconTheme: { primary: '#3CAC3B', secondary: '#fff' }, // Verde do seu projeto
+            },
+            error: {
+              iconTheme: { primary: '#FF3333', secondary: '#fff' }, // Vermelho do seu projeto
+            },
+          }}
+        />
+
         <Header />
 
-        {/* Área Central (Rotas) */}
         <div className="flex-1">
           <Routes>
             <Route path="/" element={<RenderHome />} />
@@ -129,9 +146,7 @@ export default function App() {
           </Routes>
         </div>
 
-        {/* FOOTER GLOBAL - Agora ele está DENTRO da div pai */}
         <Footer />
-        
       </div> 
     </BrowserRouter>
   );

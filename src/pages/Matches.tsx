@@ -30,18 +30,12 @@ export default function Matches() {
   const [partidasAoVivo, setPartidasAoVivo] = useState<JogoAoVivo[]>([]);
   const [rodadaSendoTransmitida, setRodadaSendoTransmitida] = useState<number>(1);
 
-  // Estados de Automação
   const [countdownToStart, setCountdownToStart] = useState<number | null>(null);
   const [simulandoMagicamente, setSimulandoMagicamente] = useState(false);
-  
-  // NOVO: Estado para capturar e exibir o erro de escalação irregular na tela
   const [erroSimulacao, setErroSimulacao] = useState<string | null>(null);
   
   const rodadaEsperadaRef = useRef<number | null>(null);
 
-  // ==========================================
-  // 1. OBSERVA O BANCO DE DADOS E OS JOGADORES NA TV
-  // ==========================================
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "game", "state"), (docSnap) => {
       if (docSnap.exists()) {
@@ -73,10 +67,6 @@ export default function Matches() {
     return () => unsub();
   }, [simulacaoAoVivo, countdownToStart, simulandoMagicamente, erroSimulacao]);
 
-
-  // ==========================================
-  // 2. CONTAGEM REGRESSIVA PARA O APITO 
-  // ==========================================
   useEffect(() => {
     if (countdownToStart === null) return;
     
@@ -93,13 +83,10 @@ export default function Matches() {
     return () => clearTimeout(timer);
   }, [countdownToStart]);
 
-  // ==========================================
-  // 3. A MATEMÁTICA QUE RODA EM SEGUNDO PLANO
-  // ==========================================
   const executarSimulacaoAutomatica = async () => {
     if (!gameState || !gameState.schedule || !gameState.standings) return;
     setSimulandoMagicamente(true);
-    setErroSimulacao(null); // Limpa erros anteriores
+    setErroSimulacao(null); 
 
     try {
       const rodadaIndex = gameState.currentRound - 1;
@@ -109,9 +96,6 @@ export default function Matches() {
       const jogos = rodadaAtualData.jogos;
       let novosStandings = [...gameState.standings];
 
-      // ==================================================
-      // NOVO: VALIDADOR RIGOROSO DE ESCALAÇÃO
-      // ==================================================
       const validarTitularesHumanos = (titularesIds: string[], elenco: Jogador[], nomeTime: string) => {
         const idsParaValidar = titularesIds.length > 0 ? titularesIds : elenco.slice(0, 11).map(j => j.id);
         const time = idsParaValidar.map(id => elenco.find(j => j.id === id)).filter(Boolean) as Jogador[];
@@ -120,17 +104,15 @@ export default function Matches() {
            throw new Error(`O time ${nomeTime} não possui 11 jogadores escalados!`);
         }
 
-        // 1. Bloqueia lesionados e suspensos (Vermelho ou Acúmulo de Amarelos)
         const irregulares = time.filter(j => j.statusFisico?.suspenso || j.statusFisico?.lesionado);
         if (irregulares.length > 0) {
           const nomes = irregulares.map(j => j.nome).join(", ");
           throw new Error(`ESCÂNDALO! O time ${nomeTime} escalou jogadores irregulares (Lesionados/Suspensos): ${nomes}. A partida não pode começar!`);
         }
 
-        // 2. Bloqueia times que entram sem goleiro
         const temGoleiro = time.some(j => j.posicao.toUpperCase().includes('GOL') || j.posicao.toUpperCase() === 'GL');
         if (!temGoleiro) {
-          throw new Error(`O time ${nomeTime} tentou entrar em campo sem um goleiro de ofício! A partida não pode começar!`);
+          throw new Error(`O time ${nomeTime} tentou entrar em campo sem um goleiro titular! A partida não pode começar!`);
         }
 
         return time;
@@ -152,7 +134,6 @@ export default function Matches() {
         const homeTitularesIds = homeDoc.data()?.titularesIds || [];
         const awayTitularesIds = awayDoc.data()?.titularesIds || [];
 
-        // Passa pelo crivo do validador. Se der erro, ele aborta a simulação na hora!
         const homeTitulares = isHomeUser ? validarTitularesHumanos(homeTitularesIds, homeElenco, nomeHome) : escalarBot(homeElenco);
         const awayTitulares = isAwayUser ? validarTitularesHumanos(awayTitularesIds, awayElenco, nomeAway) : escalarBot(awayElenco);
 
@@ -263,16 +244,12 @@ export default function Matches() {
 
     } catch (error) {
       console.error("Erro na Simulação Automática", error);
-      // Salva o erro no estado para mostrar o alerta gigante na tela!
       setErroSimulacao((error as Error).message);
     } finally {
       setSimulandoMagicamente(false);
     }
   };
 
-  // ==========================================
-  // RELÓGIO DO PLAYBACK
-  // ==========================================
   useEffect(() => {
     if (!simulacaoAoVivo) return;
 
@@ -350,53 +327,53 @@ export default function Matches() {
     setSimulacaoAoVivo(true);
   };
 
-  if (!gameState) return <div className="h-screen bg-neutral-950 flex items-center justify-center"><p className="text-yellow-500 font-bold animate-pulse tracking-widest uppercase">Conectando à Central de TV...</p></div>;
+  if (!gameState) return <div className="h-screen bg-neutral-950 flex items-center justify-center"><p className="text-yellow-500 font-bold animate-pulse tracking-widest uppercase text-sm sm:text-base">Conectando à Central de TV...</p></div>;
 
   // ==========================================
   // RENDERIZAÇÃO DA SALA DE ESPERA E CRONÔMETRO
   // ==========================================
   if (!simulacaoAoVivo) {
     return (
-      <div className="p-8 bg-neutral-950 min-h-screen flex items-center justify-center text-neutral-200 font-fifa">
-        <div className="max-w-xl mx-auto w-full text-center bg-neutral-900 p-10 rounded-2xl border border-neutral-800 shadow-2xl relative overflow-hidden">
+      <div className="p-4 sm:p-8 bg-neutral-950 min-h-screen flex items-center justify-center text-neutral-200 font-fifa">
+        <div className="max-w-xl mx-auto w-full text-center bg-neutral-900 p-6 sm:p-10 rounded-2xl border border-neutral-800 shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 left-0 w-full h-1 bg-fifa-red animate-pulse"></div>
           
-          <h1 className="text-4xl font-black text-white uppercase tracking-tighter mb-4">
+          <h1 className="text-3xl sm:text-4xl font-black text-white uppercase tracking-tighter mb-2 sm:mb-4">
             Transmissão <span className="text-fifa-red">Ao Vivo</span>
           </h1>
-          <p className="text-neutral-400 font-bold tracking-widest uppercase mb-4">
+          <p className="text-neutral-400 font-bold tracking-widest uppercase mb-4 text-xs sm:text-sm">
             Rodada {gameState.currentRound}
           </p>
           
-          <div className="my-14">
+          <div className="my-8 sm:my-14">
             {erroSimulacao ? (
-              <div className="animate-fade-in bg-fifa-red/10 border border-fifa-red p-6 rounded-xl shadow-lg">
-                <h2 className="text-3xl text-fifa-red font-black tracking-widest uppercase mb-4 animate-pulse">🚨 JOGO PARALISADO!</h2>
-                <p className="text-white font-bold mb-6 text-sm">{erroSimulacao}</p>
-                <button onClick={() => setErroSimulacao(null)} className="w-full bg-neutral-800 hover:bg-neutral-700 uppercase tracking-widest py-3 rounded-lg text-white font-black transition-colors">
-                  Aguardar Correção do Técnico
+              <div className="animate-fade-in bg-fifa-red/10 border border-fifa-red p-4 sm:p-6 rounded-xl shadow-lg">
+                <h2 className="text-xl sm:text-3xl text-fifa-red font-black tracking-widest uppercase mb-2 sm:mb-4 animate-pulse">🚨 JOGO PARALISADO!</h2>
+                <p className="text-white font-bold mb-4 sm:mb-6 text-xs sm:text-sm leading-relaxed">{erroSimulacao}</p>
+                <button onClick={() => setErroSimulacao(null)} className="w-full bg-neutral-800 hover:bg-neutral-700 uppercase tracking-widest py-3 rounded-lg text-white font-black transition-colors text-xs sm:text-base">
+                  Aguardar Correção
                 </button>
               </div>
             ) : countdownToStart !== null ? (
               <div className="animate-fade-in">
-                 <h2 className="text-4xl text-yellow-500 font-black animate-pulse tracking-widest">TODOS PRONTOS!</h2>
-                 <p className="text-neutral-400 font-bold uppercase tracking-widest mt-4">O juiz vai apitar o início em</p>
-                 <span className="text-9xl font-black text-fifa-blue mt-6 block">{countdownToStart}</span>
+                 <h2 className="text-2xl sm:text-4xl text-yellow-500 font-black animate-pulse tracking-widest">TODOS PRONTOS!</h2>
+                 <p className="text-neutral-400 font-bold uppercase tracking-widest mt-2 sm:mt-4 text-xs sm:text-base">O juiz vai apitar o início em</p>
+                 <span className="text-7xl sm:text-9xl font-black text-fifa-blue mt-4 sm:mt-6 block">{countdownToStart}</span>
               </div>
             ) : (
               <div className="animate-fade-in">
-                <div className="w-16 h-16 border-4 border-neutral-800 border-t-yellow-500 rounded-full animate-spin mx-auto mb-6"></div>
-                <h2 className="text-2xl md:text-3xl font-black text-white uppercase tracking-widest animate-pulse">
+                <div className="w-12 h-12 sm:w-16 sm:h-16 border-4 border-neutral-800 border-t-yellow-500 rounded-full animate-spin mx-auto mb-4 sm:mb-6"></div>
+                <h2 className="text-xl sm:text-3xl font-black text-white uppercase tracking-widest animate-pulse">
                   {gameState?.teams && (gameState as any)?.playersInLive
                     ? `${(gameState as any).playersInLive.length} / ${gameState.teams.filter(t => t.isUser).length} No Estádio`
                     : 'Preparando Arquibancadas...'}
                 </h2>
-                <p className="text-neutral-500 text-xs mt-3 font-bold uppercase tracking-widest">Aguardando a chegada de todos os técnicos...</p>
+                <p className="text-neutral-500 text-[10px] sm:text-xs mt-3 font-bold uppercase tracking-widest">Aguardando a chegada de todos os técnicos...</p>
               </div>
             )}
           </div>
 
-          <button onClick={() => navigate('/championship')} className="mt-8 text-xs text-neutral-600 hover:text-white uppercase font-bold tracking-widest transition-colors block mx-auto border border-neutral-800 py-3 px-6 rounded-lg">
+          <button onClick={() => navigate('/championship')} className="mt-4 sm:mt-8 text-[10px] sm:text-xs text-neutral-600 hover:text-white uppercase font-bold tracking-widest transition-colors block mx-auto border border-neutral-800 py-3 px-6 rounded-lg">
             Voltar para o Campeonato
           </button>
         </div>
@@ -408,54 +385,54 @@ export default function Matches() {
   // RENDERIZAÇÃO: MODO TRANSMISSÃO ATIVA (90 MINS)
   // ==========================================
   return (
-    <div className="p-4 md:p-8 bg-neutral-950 min-h-screen text-neutral-200 font-fifa flex flex-col">
-      <div className="max-w-6xl mx-auto w-full mb-8 text-center bg-neutral-900 border border-neutral-800 rounded-xl p-6 shadow-2xl relative overflow-hidden shrink-0">
+    <div className="p-2 sm:p-4 md:p-8 bg-neutral-950 min-h-screen text-neutral-200 font-fifa flex flex-col">
+      <div className="max-w-6xl mx-auto w-full mb-4 sm:mb-8 text-center bg-neutral-900 border border-neutral-800 rounded-xl p-4 sm:p-6 shadow-2xl relative overflow-hidden shrink-0">
         <div className="absolute top-0 left-0 h-1 bg-linear-to-r from-fifa-green via-fifa-blue to-fifa-red transition-all duration-700 ease-linear" style={{ width: `${(minuto / 90) * 100}%` }}></div>
         
-        <h2 className="text-xl font-bold text-red-500 uppercase tracking-widest flex items-center justify-center gap-2 mb-2">
-          <span className="w-3 h-3 bg-red-500 rounded-full animate-ping"></span>
-          Multicast - Cobertura da Rodada {rodadaSendoTransmitida}
+        <h2 className="text-sm sm:text-xl font-bold text-red-500 uppercase tracking-widest flex items-center justify-center gap-2 mb-2">
+          <span className="w-2 h-2 sm:w-3 sm:h-3 bg-red-500 rounded-full animate-ping"></span>
+          Multicast - Rodada {rodadaSendoTransmitida}
         </h2>
-        <div className="text-6xl font-black font-mono text-white tracking-tighter">
+        <div className="text-5xl sm:text-6xl font-black font-mono text-white tracking-tighter">
           {minuto}'
         </div>
         {minuto >= 90 && (
-          <button onClick={() => navigate('/championship')} className="mt-6 bg-fifa-blue hover:bg-opacity-80 px-8 py-3 rounded-xl text-white font-black uppercase tracking-widest transition-colors shadow-lg shadow-fifa-blue/50">
-            Ver Classificação Atualizada
+          <button onClick={() => navigate('/championship')} className="mt-4 sm:mt-6 bg-fifa-blue hover:bg-opacity-80 px-4 py-2 sm:px-8 sm:py-3 rounded-xl text-white font-black text-xs sm:text-base uppercase tracking-widest transition-colors shadow-lg shadow-fifa-blue/50">
+            Ver Classificação
           </button>
         )}
       </div>
 
-      <div className="max-w-7xl mx-auto w-full flex flex-col xl:flex-row gap-8 flex-1 pb-10">
+      <div className="max-w-7xl mx-auto w-full flex flex-col xl:flex-row gap-4 sm:gap-8 flex-1 pb-10">
         <div className="flex-1 flex flex-col gap-4">
-          <h3 className="text-yellow-500 font-black tracking-widest uppercase mb-2 border-b border-neutral-800 pb-2">O Seu Confronto</h3>
+          <h3 className="text-yellow-500 font-black tracking-widest uppercase mb-2 border-b border-neutral-800 pb-2 text-sm sm:text-base">O Seu Confronto</h3>
           
           {partidasAoVivo.filter(j => j.timeA === currentUserUid || j.timeB === currentUserUid).map((jogo, i) => (
-            <div key={i} className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden shadow-2xl flex flex-col min-h-125">
+            <div key={i} className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden shadow-2xl flex flex-col min-h-100 sm:min-h-125">
               
-              <div className="p-8 pb-4 bg-neutral-950 flex justify-between items-center shrink-0">
-                <span className={`font-black uppercase tracking-tighter flex-1 text-right truncate pr-6 text-2xl md:text-3xl ${jogo.timeA === currentUserUid ? 'text-yellow-400' : 'text-neutral-400'}`} title={jogo.nomeTimeA}>
+              <div className="p-4 sm:p-8 pb-4 bg-neutral-950 flex justify-between items-center shrink-0">
+                <span className={`font-black uppercase tracking-tighter flex-1 text-right truncate pr-2 sm:pr-6 text-sm sm:text-2xl md:text-3xl ${jogo.timeA === currentUserUid ? 'text-yellow-400' : 'text-neutral-400'}`} title={jogo.nomeTimeA}>
                   {jogo.nomeTimeA}
                 </span>
-                <div className="flex items-center gap-6 bg-neutral-900 px-8 py-4 rounded-xl border border-neutral-800 shadow-inner">
-                  <span className={`font-black text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsCasaLive > 0 ? 'text-fifa-green scale-110' : 'text-white'}`}>{jogo.golsCasaLive}</span>
-                  <span className="text-neutral-600 font-black text-3xl">X</span>
-                  <span className={`font-black text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsForaLive > 0 ? 'text-fifa-green scale-110' : 'text-white'}`}>{jogo.golsForaLive}</span>
+                <div className="flex items-center gap-2 sm:gap-6 bg-neutral-900 px-3 sm:px-8 py-2 sm:py-4 rounded-xl border border-neutral-800 shadow-inner">
+                  <span className={`font-black text-3xl sm:text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsCasaLive > 0 ? 'text-fifa-green scale-110' : 'text-white'}`}>{jogo.golsCasaLive}</span>
+                  <span className="text-neutral-600 font-black text-xl sm:text-3xl">X</span>
+                  <span className={`font-black text-3xl sm:text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsForaLive > 0 ? 'text-fifa-green scale-110' : 'text-white'}`}>{jogo.golsForaLive}</span>
                 </div>
-                <span className={`font-black uppercase tracking-tighter flex-1 text-left truncate pl-6 text-2xl md:text-3xl ${jogo.timeB === currentUserUid ? 'text-yellow-400' : 'text-neutral-400'}`} title={jogo.nomeTimeB}>
+                <span className={`font-black uppercase tracking-tighter flex-1 text-left truncate pl-2 sm:pl-6 text-sm sm:text-2xl md:text-3xl ${jogo.timeB === currentUserUid ? 'text-yellow-400' : 'text-neutral-400'}`} title={jogo.nomeTimeB}>
                   {jogo.nomeTimeB}
                 </span>
               </div>
 
-              <div className="px-8 pb-6 bg-neutral-950 border-b border-neutral-800">
-                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-neutral-500 mb-2">
-                  <span className="text-yellow-500">Pressão Mandante</span>
-                  <span>Momentum</span>
-                  <span className="text-white">Pressão Visitante</span>
+              <div className="px-4 sm:px-8 pb-4 sm:pb-6 bg-neutral-950 border-b border-neutral-800">
+                <div className="flex justify-between text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-neutral-500 mb-2">
+                  <span className="text-yellow-500">Pressão Casa</span>
+                  <span className="hidden sm:inline">Momentum</span>
+                  <span className="text-white">Pressão Fora</span>
                 </div>
-                <div className="relative w-full h-16 sm:h-20 bg-neutral-900/50 rounded-lg border border-neutral-800/50 flex items-center px-1 overflow-hidden">
+                <div className="relative w-full h-12 sm:h-20 bg-neutral-900/50 rounded-lg border border-neutral-800/50 flex items-center px-1 overflow-hidden">
                   <div className="absolute top-1/2 left-0 w-full h-px bg-neutral-700/50 z-0"></div>
-                  <div className="flex w-full h-full items-center gap-0.5 z-10">
+                  <div className="flex w-full h-full items-center gap-0.5 sm:gap-1 z-10">
                     {Array.from({ length: 18 }).map((_, idx) => {
                       const ponto = jogo.pressaoLive[idx];
                       if (!ponto) return <div key={idx} className="flex-1 h-full"></div>;
@@ -481,18 +458,18 @@ export default function Matches() {
                 </div>
               </div>
 
-              <div className="p-6 flex-1 overflow-y-auto custom-scrollbar bg-neutral-900/50 h-full">
+              <div className="p-4 sm:p-6 flex-1 overflow-y-auto custom-scrollbar bg-neutral-900/50 h-full">
                 {jogo.eventosLive.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-neutral-600 italic font-bold text-lg tracking-widest">A bola está rolando...</div>
+                  <div className="h-full flex items-center justify-center text-neutral-600 italic font-bold text-sm sm:text-lg tracking-widest text-center">A bola está rolando...</div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3 sm:space-y-4">
                     {jogo.eventosLive.map((evento, idx) => (
-                      <div key={idx} className={`border-l-4 pl-4 py-3 flex items-start gap-4 animate-fade-in
+                      <div key={idx} className={`border-l-4 pl-3 sm:pl-4 py-2 sm:py-3 flex items-start gap-3 sm:gap-4 animate-fade-in
                         ${evento.tipo === 'GOL' ? 'border-fifa-green bg-fifa-green/10' : 
                           evento.tipo === 'CARTAO_VERMELHO' ? 'border-fifa-red bg-fifa-red/10' : 
                           evento.tipo === 'CARTAO_AMARELO' ? 'border-yellow-500 bg-yellow-500/10' : 'border-fifa-blue bg-fifa-blue/10'}`}>
-                        <span className="font-black text-white w-12 shrink-0 text-xl">{evento.minuto}'</span>
-                        <span className="text-neutral-300 font-medium leading-tight text-lg mt-0.5">{evento.texto}</span>
+                        <span className="font-black text-white w-8 sm:w-12 shrink-0 text-sm sm:text-xl">{evento.minuto}'</span>
+                        <span className="text-neutral-300 font-medium leading-snug sm:leading-tight text-xs sm:text-lg mt-0.5">{evento.texto}</span>
                       </div>
                     ))}
                   </div>
@@ -502,26 +479,26 @@ export default function Matches() {
           ))}
 
           {partidasAoVivo.filter(j => j.timeA === currentUserUid || j.timeB === currentUserUid).length === 0 && (
-             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-12 text-center text-neutral-500 font-bold uppercase tracking-widest h-125 flex items-center justify-center">
+             <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 sm:p-12 text-center text-neutral-500 font-bold uppercase tracking-widest h-64 sm:h-125 flex items-center justify-center text-xs sm:text-base">
                  Você não possui jogos nesta rodada (BYE).
              </div>
           )}
         </div>
 
         <div className="w-full xl:w-100 flex flex-col gap-4">
-          <h3 className="text-neutral-500 font-black tracking-widest uppercase mb-2 border-b border-neutral-800 pb-2">Outros Jogos da Rodada</h3>
-          <div className="flex flex-col gap-3 overflow-y-auto custom-scrollbar max-h-150 pr-2">
+          <h3 className="text-neutral-500 font-black tracking-widest uppercase mb-2 border-b border-neutral-800 pb-2 text-sm sm:text-base">Outros Jogos da Rodada</h3>
+          <div className="flex flex-col gap-2 sm:gap-3 overflow-y-auto custom-scrollbar max-h-96 xl:max-h-150 pr-1 sm:pr-2">
             {partidasAoVivo.filter(j => j.timeA !== currentUserUid && j.timeB !== currentUserUid).map((jogo, i) => (
-              <div key={i} className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 flex justify-between items-center shadow-lg hover:border-neutral-700 transition-colors">
-                <span className="font-bold text-neutral-400 uppercase tracking-widest flex-1 text-right truncate pr-3 text-xs" title={jogo.nomeTimeA}>
+              <div key={i} className="bg-neutral-900 border border-neutral-800 rounded-xl p-3 sm:p-4 flex justify-between items-center shadow-lg hover:border-neutral-700 transition-colors">
+                <span className="font-bold text-neutral-400 uppercase tracking-widest flex-1 text-right truncate pr-2 sm:pr-3 text-[10px] sm:text-xs" title={jogo.nomeTimeA}>
                   {jogo.nomeTimeA}
                 </span>
-                <div className="flex items-center gap-3 bg-neutral-950 px-4 py-2 rounded-lg border border-neutral-800 shrink-0">
-                  <span className={`font-black text-xl ${minuto > 0 && jogo.golsCasaLive > 0 ? 'text-yellow-400' : 'text-white'}`}>{jogo.golsCasaLive}</span>
-                  <span className="text-neutral-700 font-black text-xs">X</span>
-                  <span className={`font-black text-xl ${minuto > 0 && jogo.golsForaLive > 0 ? 'text-yellow-400' : 'text-white'}`}>{jogo.golsForaLive}</span>
+                <div className="flex items-center gap-2 sm:gap-3 bg-neutral-950 px-2 sm:px-4 py-1 sm:py-2 rounded-lg border border-neutral-800 shrink-0">
+                  <span className={`font-black text-sm sm:text-xl ${minuto > 0 && jogo.golsCasaLive > 0 ? 'text-yellow-400' : 'text-white'}`}>{jogo.golsCasaLive}</span>
+                  <span className="text-neutral-700 font-black text-[10px] sm:text-xs">X</span>
+                  <span className={`font-black text-sm sm:text-xl ${minuto > 0 && jogo.golsForaLive > 0 ? 'text-yellow-400' : 'text-white'}`}>{jogo.golsForaLive}</span>
                 </div>
-                <span className="font-bold text-neutral-400 uppercase tracking-widest flex-1 text-left truncate pl-3 text-xs" title={jogo.nomeTimeB}>
+                <span className="font-bold text-neutral-400 uppercase tracking-widest flex-1 text-left truncate pl-2 sm:pl-3 text-[10px] sm:text-xs" title={jogo.nomeTimeB}>
                   {jogo.nomeTimeB}
                 </span>
               </div>

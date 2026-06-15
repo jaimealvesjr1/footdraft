@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { db } from '../services/firebase';
 import { doc, onSnapshot, updateDoc, getDocs, collection } from 'firebase/firestore';
 import { type GameState, type Jogador, type Clube } from '../types';
+import toast from 'react-hot-toast'; // NOVO AQUI
 
 interface Usuario {
   id: string;
@@ -11,7 +12,6 @@ interface Usuario {
   trocasRealizadas: number;
 }
 
-// O novo formato que liga quem sai com as suas opções de entrada
 interface PacoteSubstituicao {
   saindo: Jogador;
   opcoes: Jogador[];
@@ -25,10 +25,8 @@ export default function TransferWindow({ uid }: { uid: string }) {
   const [todosJogadoresBase, setTodosJogadoresBase] = useState<Jogador[]>([]);
   const [jogadoresLivres, setJogadoresLivres] = useState<Jogador[]>([]);
   
-  // Controle de Etapas
   const [etapaTroca, setEtapaTroca] = useState<'SELECIONAR_SAIDA' | 'SELECIONAR_ENTRADAS'>('SELECIONAR_SAIDA');
   
-  // 1. Mudamos para ARRAYS (Listas) em vez de um único jogador
   const [jogadoresParaSair, setJogadoresParaSair] = useState<Jogador[]>([]);
   const [substituicoes, setSubstituicoes] = useState<PacoteSubstituicao[]>([]);
   
@@ -73,34 +71,23 @@ export default function TransferWindow({ uid }: { uid: string }) {
   const isMinhaVez = gameState?.draftTurnUid === uid;
   const trocasRestantes = meuTime ? (meuTime.trocasPermitidas - (meuTime.trocasRealizadas || 0)) : 0;
 
-  // ==========================================
-  // LÓGICA 1: SELECIONAR VÁRIOS PARA SAIR
-  // ==========================================
   const toggleJogadorSaida = (jogador: Jogador) => {
     if (!isMinhaVez) return;
     
-    // Se já estiver na lista, remove (desmarca)
     if (jogadoresParaSair.some(j => j.id === jogador.id)) {
       setJogadoresParaSair(prev => prev.filter(j => j.id !== jogador.id));
     } else {
-      // Se tentar adicionar além do limite
       if (jogadoresParaSair.length >= trocasRestantes) {
-        alert(`Atenção: Você só tem direito a mais ${trocasRestantes} trocas nesta janela.`);
+        toast.error(`Você só tem direito a mais ${trocasRestantes} trocas nesta janela.`);
         return;
       }
-      // Adiciona (marca)
       setJogadoresParaSair(prev => [...prev, jogador]);
     }
   };
 
-  // ==========================================
-  // LÓGICA 2: TRAVAR E GERAR PACOTES DE OPÇÕES
-  // ==========================================
   const travarSaidasEGerarOpcoes = () => {
     if (jogadoresParaSair.length === 0) return;
 
-    // Criamos uma cópia dos agentes livres para ir removendo os que já foram sorteados
-    // Isso impede que o mesmo agente livre apareça como opção para duas vagas diferentes!
     let poolDisponivel = [...jogadoresLivres];
     const novosPacotes: PacoteSubstituicao[] = [];
 
@@ -116,10 +103,9 @@ export default function TransferWindow({ uid }: { uid: string }) {
           selecionados.push(j);
           clubesUsados.add(j.clubeHistorico);
         }
-        if (selecionados.length === 3) break; // Para quando tiver 3
+        if (selecionados.length === 3) break;
       }
 
-      // Remove os 3 sorteados do pool global para a próxima vaga não os repetir
       poolDisponivel = poolDisponivel.filter(l => !selecionados.some(s => s.id === l.id));
 
       novosPacotes.push({ saindo, opcoes: selecionados, selecionado: null });
@@ -129,9 +115,6 @@ export default function TransferWindow({ uid }: { uid: string }) {
     setEtapaTroca('SELECIONAR_ENTRADAS');
   };
 
-  // ==========================================
-  // LÓGICA 3: MARCAR QUEM VAI ENTRAR
-  // ==========================================
   const selecionarEntrada = (indexDoPacote: number, jogadorEscolhido: Jogador) => {
     setSubstituicoes(prev => {
       const novaLista = [...prev];
@@ -140,34 +123,24 @@ export default function TransferWindow({ uid }: { uid: string }) {
     });
   };
 
-  // Verifica se o jogador já escolheu um substituto para CADA vaga que abriu
   const todasVagasPreenchidas = substituicoes.length > 0 && substituicoes.every(sub => 
     sub.opcoes.length === 0 || sub.selecionado !== null
   );
 
-  // ==========================================
-  // LÓGICA 4: CONFIRMAR E SALVAR TUDO
-  // ==========================================
   const confirmarTrocasEmMassa = async () => {
     if (!meuTime || !gameState || !todasVagasPreenchidas) return;
     setCarregando(true);
 
     try {
-      // Ignora os pacotes onde não houve contratação possível
       const substituicoesValidas = substituicoes.filter(sub => sub.selecionado !== null);
 
       const idsSaindo = substituicoesValidas.map(sub => sub.saindo.id);
       const jogadoresEntrando = substituicoesValidas.map(sub => sub.selecionado!);
 
       const elencoAtual = meuTime.elenco || [];
-      
-      // 1. Remove APENAS os jogadores que realmente foram substituídos
       const novoElenco = elencoAtual.filter(j => !idsSaindo.includes(j.id));
-      
-      // 2. Adiciona todo mundo que está a entrar
       novoElenco.push(...jogadoresEntrando);
 
-      // 3. Atualiza o contador de trocas realizadas APENAS com as transações concretizadas
       const trocasFeitas = (meuTime.trocasRealizadas || 0) + substituicoesValidas.length;
 
       await updateDoc(doc(db, "usuarios", uid), {
@@ -175,7 +148,6 @@ export default function TransferWindow({ uid }: { uid: string }) {
         trocasRealizadas: trocasFeitas
       });
 
-      // Passar a Vez
       const novaOrdem = [...(gameState.draftOrder || [])];
       novaOrdem.shift(); 
 
@@ -185,15 +157,14 @@ export default function TransferWindow({ uid }: { uid: string }) {
         await gerarProximaRodadaDeTransferencias();
       }
 
-      // Limpar o estado visual
       setJogadoresParaSair([]);
       setSubstituicoes([]);
       setEtapaTroca('SELECIONAR_SAIDA');
-      alert(`✅ ${substituicoes.length} transferência(s) concluída(s)!`);
+      toast.success(`${substituicoes.length} transferência(s) concluída(s)!`);
 
     } catch (error) {
       console.error(error);
-      alert("❌ Erro ao realizar trocas.");
+      toast.error("Erro ao realizar trocas.");
     } finally {
       setCarregando(false);
     }
@@ -220,7 +191,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
       });
     } else {
       await updateDoc(doc(db, "game", "state"), { draftTurnUid: null, draftOrder: [] });
-      alert("Janela de Transferências encerrada!");
+      toast.success("Janela de Transferências encerrada!");
     }
   };
 
@@ -242,6 +213,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
     return <div className="text-white text-center mt-20">A Janela de Transferências está fechada.</div>;
   }
 
+  // ... (o return HTML continua o mesmo)
   return (
     <div className="min-h-screen bg-neutral-950 p-8 text-white font-fifa">
       <h1 className="text-3xl font-black uppercase text-fifa-blue mb-2">Janela de Transferências</h1>
@@ -273,7 +245,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
               onClick={confirmarTrocasEmMassa}
               className="px-6 py-3 bg-fifa-green hover:bg-opacity-80 disabled:opacity-50 font-black uppercase tracking-widest rounded shadow-[0_0_15px_rgba(60,172,59,0.4)] transition-colors text-white"
             >
-              {carregando ? 'A Processar...' : `Efetuar ${substituicoes.length} Transferência(s) ♻️`}
+              {carregando ? 'Processando...' : `Efetuar ${substituicoes.length} Transferência(s) ♻️`}
             </button>
           )}
           
@@ -325,7 +297,6 @@ export default function TransferWindow({ uid }: { uid: string }) {
             </div>
           ) : (
             <div className="space-y-6 max-h-150 overflow-y-auto pr-2 custom-scrollbar">
-              {/* Para CADA jogador que sai, criamos um bloco com 3 opções */}
               {substituicoes.map((pacote, index) => (
                 <div key={pacote.saindo.id} className="bg-neutral-950 p-5 rounded-xl border border-neutral-800">
                   <h3 className="font-black text-yellow-500 mb-3 border-b border-neutral-800 pb-2 flex items-center gap-2">

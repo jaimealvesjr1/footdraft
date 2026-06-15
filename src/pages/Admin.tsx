@@ -3,6 +3,45 @@ import { type Clube, type GamePhase, type GameState, type Posicao, type Jogador 
 import { doc, setDoc, deleteDoc, onSnapshot, getDocs, collection, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase'; 
 import { simularPartidaV2, escalarBot } from '../services/matchEngine';
+import toast from 'react-hot-toast';
+
+// ==================================================
+// NOVA FERRAMENTA: SUBSTITUTO DO WINDOW.CONFIRM
+// ==================================================
+const confirmarAcao = (mensagem: string): Promise<boolean> => {
+  return new Promise((resolve) => {
+    toast.custom(
+      (t) => (
+        <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-sm w-full bg-neutral-900 shadow-2xl rounded-xl pointer-events-auto flex flex-col ring-1 ring-neutral-800`}>
+          <div className="p-6 text-center">
+            <p className="text-sm font-bold text-white uppercase tracking-widest">{mensagem}</p>
+          </div>
+          <div className="flex border-t border-neutral-800">
+            <button
+              onClick={() => {
+                toast.dismiss(t.id);
+                resolve(false); 
+              }}
+              className="w-full border-r border-neutral-800 rounded-bl-xl px-4 py-4 text-xs font-black uppercase tracking-widest text-neutral-500 hover:text-white hover:bg-neutral-800 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => {
+                toast.dismiss(t.id);
+                resolve(true); 
+              }}
+              className="w-full rounded-br-xl px-4 py-4 text-xs font-black uppercase tracking-widest text-fifa-green hover:bg-fifa-green/10 transition-colors"
+            >
+              Confirmar
+            </button>
+          </div>
+        </div>
+      ),
+      { duration: Infinity, position: 'top-center' } 
+    );
+  });
+};
 
 export default function Admin() {
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -27,19 +66,26 @@ export default function Admin() {
   }, []);
 
   const mudarFase = async (novaFase: GamePhase) => {
-    if (window.confirm(`Mudar o jogo para a fase: ${novaFase}?`)) {
+    const confirmado = await confirmarAcao(`Mudar o jogo para a fase: ${novaFase}?`);
+    if (confirmado) {
       await setDoc(doc(db, "game", "state"), { phase: novaFase }, { merge: true });
+      toast.success(`Fase alterada para ${novaFase}`);
     }
   };
 
   const iniciarPreTemporada = async () => {
-    if (!window.confirm("Iniciar a Pré-Temporada? O sistema sorteará a ordem.")) return;
+    const confirmado = await confirmarAcao("Iniciar a Pré-Temporada? O sistema sorteará a ordem.");
+    if (!confirmado) return;
+
     try {
       const usersSnap = await getDocs(collection(db, "usuarios"));
       let uidsRegistrados: string[] = [];
       usersSnap.forEach(doc => { if (doc.data().nomeTime) uidsRegistrados.push(doc.id); });
 
-      if (uidsRegistrados.length === 0) return alert("Nenhum jogador na Sala de Espera!");
+      if (uidsRegistrados.length === 0) {
+        toast.error("Nenhum jogador na Sala de Espera!");
+        return;
+      }
 
       const ordemSorteada = uidsRegistrados.sort(() => Math.random() - 0.5);
       await setDoc(doc(db, "game", "state"), {
@@ -47,11 +93,14 @@ export default function Admin() {
         draftTurnUid: ordemSorteada[0], draftDeadline: Date.now() + (3 * 60 * 1000), playersReady: []
       }, { merge: true });
 
-      alert(`✅ Pré-Temporada iniciada com ${ordemSorteada.length} jogadores!`);
-    } catch (error) { console.error(error); alert("❌ Erro ao iniciar."); }
+      toast.success(`Pré-Temporada iniciada com ${ordemSorteada.length} jogadores!`);
+    } catch (error) { 
+      console.error(error); 
+      toast.error("Erro ao iniciar a Pré-Temporada."); 
+    }
   };
 
-  const promptParaIA = termoBusca ? `Gere um arquivo JSON com um elenco completo de 18 a 22 jogadores do ${termoBusca}. ATENÇÃO: O 'id' de cada jogador deve ser único e no formato 'nome-time-ano-nome-jogador' (ex: 'cruzeiro-2003-gomes'). REGRAS OBRIGATÓRIAS: 1) A propriedade 'posicao' DEVE conter EXATAMENTE E APENAS uma destas 4 opções: "GOL", "DEF", "MEI" ou "ATA". É estritamente proibido usar ZAG, VOL, LD, LE, SA, etc. Classifique os defensores todos como "DEF" e médios como "MEI". 2) É ESTRITAMENTE OBRIGATÓRIO incluir pelo menos 2 jogadores com a posição "GOL" (guarda-redes) para garantir opções no banco de suplentes. Siga esta estrutura:\n{\n  "id": "${termoBusca.toLowerCase().replace(/\s+/g, '-')}",\n  "nome": "${termoBusca.replace(/\d+/g, '').trim()}",\n  "ano": ${termoBusca.replace(/\D/g, '') || 2000},\n  "elenco": [\n    { "id": "cruzeiro-2003-gomes", "nome": "Gomes", "posicao": "GOL", "clubeHistorico": "${termoBusca}", "overall": 85, "statusFisico": { "cansaco": 1, "lesionado": false, "suspenso": false }, "temporadasNoClube": 0 }\n  ]\n}` : '';
+  const promptParaIA = termoBusca ? `Gere um arquivo JSON com um elenco completo de 18 a 22 jogadores do ${termoBusca}. ATENÇÃO: O 'id' de cada jogador deve ser único e no formato 'nome-time-ano-nome-jogador' (ex: 'cruzeiro-2003-gomes'). REGRAS OBRIGATÓRIAS: 1) A propriedade 'posicao' DEVE conter EXATAMENTE E APENAS uma destas 4 opções: "GOL", "DEF", "MEI" ou "ATA". É estritamente proibido usar ZAG, VOL, LD, LE, SA, etc. Classifique os defensores todos como "DEF" e os meias como "MEI". 2) É ESTRITAMENTE OBRIGATÓRIO incluir pelo menos 2 jogadores com a posição "GOL" (goleiros) para garantir opções no banco de reservas. Siga esta estrutura:\n{\n  "id": "${termoBusca.toLowerCase().replace(/\s+/g, '-')}",\n  "nome": "${termoBusca.replace(/\d+/g, '').trim()}",\n  "ano": ${termoBusca.replace(/\D/g, '') || 2000},\n  "elenco": [\n    { "id": "cruzeiro-2003-gomes", "nome": "Gomes", "posicao": "GOL", "clubeHistorico": "${termoBusca}", "overall": 85, "statusFisico": { "cansaco": 1, "lesionado": false, "suspenso": false }, "temporadasNoClube": 0 }\n  ]\n}` : '';
 
   const carregarJson = () => {
     try {
@@ -80,13 +129,21 @@ export default function Admin() {
         }))
       };
       await setDoc(doc(db, "clubes", clubeSanitizado.id), clubeSanitizado);
-      alert(`✅ O time ${clubeSanitizado.nome} foi salvo!`);
+      toast.success(`O time ${clubeSanitizado.nome} foi salvo!`);
       setClubeEmEdicao(null); setJsonImportado(''); setTermoBusca('');
-    } catch (error) { alert("❌ Erro ao salvar."); } finally { setSalvando(false); }
+    } catch (error) { 
+      toast.error("Erro ao salvar clube."); 
+    } finally { 
+      setSalvando(false); 
+    }
   };
 
   const excluirClube = async (idClube: string) => {
-    if (window.confirm("ATENÇÃO! Excluir este time do banco de dados definitivamente?")) await deleteDoc(doc(db, "clubes", idClube));
+    const confirmado = await confirmarAcao("ATENÇÃO! Excluir este time do banco de dados definitivamente?");
+    if (confirmado) {
+      await deleteDoc(doc(db, "clubes", idClube));
+      toast.success("Clube excluído com sucesso.");
+    }
   };
 
   const gerarCampeonato = async () => {
@@ -112,7 +169,7 @@ export default function Admin() {
       while (times.length < TOTAL_TIMES && clubesBots.length > 0) times.push(clubesBots.pop()!);
 
       if (times.length < TOTAL_TIMES) {
-        alert(`Atenção: Tem apenas ${times.length} times disponíveis. Precisa de 20. Adicione mais clubes no banco de dados!`);
+        toast.error(`Tem apenas ${times.length} times disponíveis. Precisa de 20. Adicione mais clubes!`);
         return; 
       }
 
@@ -153,13 +210,13 @@ export default function Admin() {
         currentRound: 1, phase: 'FIRST_HALF' 
       });
 
-      alert("🏆 Campeonato Gerado com Sucesso! Foram criadas 38 rodadas (Ida e Volta).");
-    } catch (error) { console.error(error); alert("Erro ao gerar tabela."); }
+      toast.success("Campeonato Gerado com Sucesso! (38 rodadas)");
+    } catch (error) { 
+      console.error(error); 
+      toast.error("Erro ao gerar tabela."); 
+    }
   };
 
-  // ==================================================
-  // MOTOR PROTEGIDO COM TRY...CATCH PARA EVITAR TRAVAMENTOS
-  // ==================================================
   const simularRodadaAtual = async () => {
     if (!gameState || !gameState.schedule || !gameState.standings) return;
     
@@ -176,11 +233,7 @@ export default function Admin() {
       const jogos = rodadaAtualData.jogos;
       let novosStandings = [...gameState.standings];
 
-      // ==================================================
-      // NOVO: VALIDADOR RIGOROSO DE ESCALAÇÃO
-      // ==================================================
       const validarTitularesHumanos = (titularesIds: string[], elenco: Jogador[], nomeTime: string) => {
-        // Se o técnico não salvar nada no vestiário, tenta validar os 11 primeiros da lista
         const idsParaValidar = titularesIds.length > 0 ? titularesIds : elenco.slice(0, 11).map(j => j.id);
         const time = idsParaValidar.map(id => elenco.find(j => j.id === id)).filter(Boolean) as Jogador[];
 
@@ -188,17 +241,15 @@ export default function Admin() {
            throw new Error(`O time ${nomeTime} não possui 11 jogadores escalados!`);
         }
 
-        // 1. Verifica jogadores irregulares (Lesionados ou Suspensos)
         const irregulares = time.filter(j => j.statusFisico?.suspenso || j.statusFisico?.lesionado);
         if (irregulares.length > 0) {
           const nomes = irregulares.map(j => j.nome).join(", ");
-          throw new Error(`O time ${nomeTime} escalou jogadores irregulares (Lesionados/Suspensos): ${nomes}. A partida não pode começar. Dê uma bronca no técnico!`);
+          throw new Error(`O time ${nomeTime} escalou jogadores irregulares: ${nomes}. Dê uma bronca no técnico!`);
         }
 
-        // 2. Verifica se tem goleiro
         const temGoleiro = time.some(j => j.posicao.toUpperCase().includes('GOL') || j.posicao.toUpperCase() === 'GL');
         if (!temGoleiro) {
-          throw new Error(`O time ${nomeTime} tentou entrar em campo sem um goleiro titular! A partida não pode começar.`);
+          throw new Error(`O time ${nomeTime} tentou entrar em campo sem um goleiro titular!`);
         }
 
         return time;
@@ -220,7 +271,6 @@ export default function Admin() {
         const homeTitularesIds = homeDoc.data()?.titularesIds || [];
         const awayTitularesIds = awayDoc.data()?.titularesIds || [];
 
-        // Substituímos a função auto-reparo pela função de validação rigorosa
         const homeTitulares = isHomeUser ? validarTitularesHumanos(homeTitularesIds, homeElenco, nomeHome) : escalarBot(homeElenco);
         const awayTitulares = isAwayUser ? validarTitularesHumanos(awayTitularesIds, awayElenco, nomeAway) : escalarBot(awayElenco);
 
@@ -251,8 +301,6 @@ export default function Admin() {
             const estavaSuspenso = jogador.statusFisico?.suspenso === true;
             const estavaLesionado = jogador.statusFisico?.lesionado === true;
 
-            // Se o jogador chegou até aqui (não foi barrado pelo validador),
-            // a suspensão dele é perdoada ANTES dos cartões da rodada atual.
             if (estavaSuspenso) {
               status.suspenso = false;
             }
@@ -320,13 +368,14 @@ export default function Admin() {
 
       let updatedSchedule = gameState.schedule.map((rodada, index) => index === rodadaIndex ? { jogos: jogos } : rodada);
       let proximaFase = gameState.phase;
-      let mensagemAlert = "⚽ Rodada Simulada com Sucesso!";
+      let mensagemAlert = "Rodada Simulada com Sucesso!";
 
       if (gameState.currentRound === 19) {
-        mensagemAlert = "🏁 FIM DO 1º TURNO! Abra a janela de transferências antes de prosseguir.";
+        mensagemAlert = "FIM DO 1º TURNO! Abra a janela de transferências.";
+        proximaFase = 'TRANSFER_WINDOW';
       } else if (gameState.currentRound === 38) {
         proximaFase = 'FINISHED'; 
-        mensagemAlert = "🏆 CAMPEONATO ENCERRADO! A rodada final foi simulada.";
+        mensagemAlert = "CAMPEONATO ENCERRADO! Rodada final simulada.";
       }
 
       await updateDoc(doc(db, "game", "state"), {
@@ -334,11 +383,11 @@ export default function Admin() {
         phase: proximaFase, playersReady: []
       });
 
-      alert(mensagemAlert);
+      toast.success(mensagemAlert);
 
     } catch (error) {
       console.error("Erro na Simulação:", error);
-      alert(`❌ SIMULAÇÃO ABORTADA: ${(error as Error).message}`);
+      toast.error(`SIMULAÇÃO ABORTADA: ${(error as Error).message}`);
     } finally {
       setSalvando(false);
     }
@@ -346,7 +395,10 @@ export default function Admin() {
 
   const iniciarJanelaTransferencias = async () => {
     if (!gameState || !gameState.standings || !gameState.teams) return;
-    if (!window.confirm("📢 Abrir Janela de Transferências?")) return;
+    
+    const confirmado = await confirmarAcao("📢 Abrir Janela de Transferências?");
+    if (!confirmado) return;
+
     setSalvando(true);
     try {
       const usuariosNoJogo = gameState.teams.filter(t => t.isUser).map(t => t.id);
@@ -359,26 +411,38 @@ export default function Admin() {
       await Promise.all(promessasDeAtualizacao);
       const ordemDeEscolha = [...tabela].reverse().filter(time => usuariosNoJogo.includes(time.id)).map(time => time.id);
       await updateDoc(doc(db, "game", "state"), { phase: 'TRANSFER_WINDOW', draftOrder: ordemDeEscolha, draftTurnUid: ordemDeEscolha[0], playersReady: [] });
-      alert("✅ Janela de Transferências aberta!");
-    } catch (error) { alert("❌ Erro ao processar as transferências."); } finally { setSalvando(false); }
+      toast.success("Janela de Transferências aberta!");
+    } catch (error) { 
+      toast.error("Erro ao processar as transferências."); 
+    } finally { 
+      setSalvando(false); 
+    }
   };
 
   const iniciarReturno = async () => {
-    if (!window.confirm("▶️ Iniciar o Returno?")) return;
+    const confirmado = await confirmarAcao("▶️ Iniciar o Returno?");
+    if (!confirmado) return;
+
     setSalvando(true);
-    try { await updateDoc(doc(db, "game", "state"), { phase: 'SECOND_HALF', draftTurnUid: null, draftOrder: [] }); alert("✅ Returno iniciado! (Fase definida como SECOND_HALF)"); } 
-    catch (error) { alert("❌ Erro."); } finally { setSalvando(false); }
+    try { 
+      await updateDoc(doc(db, "game", "state"), { phase: 'SECOND_HALF', draftTurnUid: null, draftOrder: [] }); 
+      toast.success("Returno iniciado!"); 
+    } catch (error) { 
+      toast.error("Erro ao iniciar returno."); 
+    } finally { 
+      setSalvando(false); 
+    }
   };
 
   const resetarPreTemporada = async () => {
-    if (!window.confirm("🚨 ATENÇÃO! Apagar elencos dos usuários, restaurar a saúde dos bots e voltar à Sala de Espera?")) return;
+    const confirmado = await confirmarAcao("🚨 ATENÇÃO! Apagar elencos e zerar o servidor?");
+    if (!confirmado) return;
+
     setSalvando(true);
     try {
-      // 1. Zera os elencos dos jogadores humanos
       const usersSnap = await getDocs(collection(db, "usuarios"));
       const promessasUsuarios = usersSnap.docs.map(docSnap => updateDoc(doc(db, "usuarios", docSnap.id), { elenco: [], elencoPronto: false, titularesIds: [] }));
       
-      // 2. Restaura 100% da saúde, cartões e energia de todos os times Bots (clubes base)
       const clubesSnap = await getDocs(collection(db, "clubes"));
       const promessasClubes = clubesSnap.docs.map(docSnap => {
         const clubeData = docSnap.data() as Clube;
@@ -389,16 +453,17 @@ export default function Admin() {
         return updateDoc(doc(db, "clubes", docSnap.id), { elenco: elencoCurado });
       });
 
-      // Executa as duas limpezas simultaneamente
       await Promise.all([...promessasUsuarios, ...promessasClubes]);
       
-      // 3. Reseta o status geral do campeonato
       await setDoc(doc(db, "game", "state"), { phase: 'SETUP', currentRound: 1, draftOrder: [], draftTurnUid: null, playersReady: [], teams: [], standings: [], schedule: [] });
-      alert("♻️ Reset concluído! O DM de todos os clubes foi esvaziado e os cartões zerados.");
-    } catch (error) { alert("❌ Erro ao resetar o servidor."); } finally { setSalvando(false); }
+      toast.success("Reset concluído! DM e cartões zerados.");
+    } catch (error) { 
+      toast.error("Erro ao resetar o servidor."); 
+    } finally { 
+      setSalvando(false); 
+    }
   };
 
-  // Calcula OVR médio de um clube (Top 11 jogadores)
   const getClubeOvr = (elenco: Jogador[]) => {
     if (!elenco || elenco.length < 11) return 0;
     const sorted = [...elenco].sort((a, b) => b.overall - a.overall).slice(0, 11);
@@ -407,78 +472,79 @@ export default function Admin() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-200 p-8 font-fifa">
-      <div className="max-w-7xl mx-auto space-y-8">
+    <div className="min-h-screen bg-neutral-950 text-neutral-200 p-4 sm:p-8 font-fifa">
+      <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
         
-        {/* CABEÇALHO COM INFOS DA SALA E BARRA DE PROGRESSO */}
-        <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-xl gap-6">
-          <div className="flex-1 w-full">
-            <h1 className="text-3xl font-black text-white uppercase tracking-tighter">Painel do <span className="text-fifa-blue">Game Master</span></h1>
-            <p className="text-sm text-neutral-400 mt-2 font-bold tracking-widest uppercase">
-              Fase Atual: <span className="text-fifa-green">{gameState?.phase || '...'}</span> | Rodada: <span className="text-fifa-blue">{gameState?.currentRound || 0}</span>/38
+        {/* CABEÇALHO */}
+        <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl gap-4 sm:gap-6">
+          <div className="flex-1 w-full text-center md:text-left">
+            <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">Painel do <span className="text-fifa-blue">Game Master</span></h1>
+            <p className="text-xs sm:text-sm text-neutral-400 mt-2 font-bold tracking-widest uppercase">
+              Fase Atual: <span className="text-fifa-green">{gameState?.phase || '...'}</span> <br className="md:hidden" /> <span className="hidden md:inline">|</span> Rodada: <span className="text-fifa-blue">{gameState?.currentRound || 0}</span>/38
             </p>
-            {/* Barra de Progresso */}
             <div className="mt-4 w-full bg-neutral-950 h-2 rounded-full overflow-hidden border border-neutral-800">
               <div className="bg-linear-to-r from-fifa-green via-fifa-blue to-fifa-red h-full transition-all duration-1000" style={{ width: `${Math.min(100, ((gameState?.currentRound || 0) / 38) * 100)}%` }}></div>
             </div>
           </div>
-          <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 text-center shrink-0 min-w-40">
-            <p className="text-xs text-neutral-500 uppercase font-black">Jogadores Prontos</p>
-            <p className="text-3xl font-black text-fifa-green">{gameState?.playersReady?.length || 0}</p>
+          <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 text-center w-full md:w-auto md:min-w-40">
+            <p className="text-[10px] sm:text-xs text-neutral-500 uppercase font-black">Jogadores Prontos</p>
+            <p className="text-2xl sm:text-3xl font-black text-fifa-green">{gameState?.playersReady?.length || 0}</p>
           </div>
         </div>
 
-        {/* NOVA ÁREA DE BOTÕES ORGANIZADOS POR GRUPOS */}
+        {/* ÁREA DE BOTÕES */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-neutral-900 p-5 rounded-xl border border-neutral-800 flex flex-col gap-3">
-            <h3 className="text-xs text-neutral-500 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">1. Preparação</h3>
-            <button onClick={() => mudarFase('SETUP')} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 font-bold rounded text-white shadow transition-all text-sm">Sala de Espera</button>
-            <button onClick={iniciarPreTemporada} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-fifa-gray-light font-bold rounded shadow transition-all text-sm">Iniciar Pré-Temporada</button>
+          <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border border-neutral-800 flex flex-col gap-2 sm:gap-3">
+            <h3 className="text-[10px] sm:text-xs text-neutral-500 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">1. Preparação</h3>
+            <button onClick={() => mudarFase('SETUP')} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 font-bold rounded text-white shadow transition-all text-xs sm:text-sm">Sala de Espera</button>
+            <button onClick={iniciarPreTemporada} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-fifa-gray-light font-bold rounded shadow transition-all text-xs sm:text-sm">Iniciar Pré-Temporada</button>
           </div>
 
-          <div className="bg-neutral-900 p-5 rounded-xl border-t-4 border-t-fifa-blue flex flex-col gap-3 shadow-lg">
-            <h3 className="text-xs text-fifa-blue font-black uppercase tracking-widest border-b border-neutral-800 pb-2">2. Campeonato</h3>
-            <button onClick={gerarCampeonato} className="w-full py-2 bg-fifa-blue/20 hover:bg-fifa-blue/30 border border-fifa-blue/50 text-fifa-blue font-bold rounded shadow transition-all text-sm uppercase tracking-widest">Gerar Tabela (38 RDs)</button>
-            <button onClick={simularRodadaAtual} disabled={salvando} className="w-full py-3 bg-fifa-blue hover:bg-opacity-80 font-black rounded text-white shadow-lg transition-all uppercase tracking-widest mt-auto">
-              {salvando ? 'A Processar...' : `Simular Rodada ${Math.min(38, gameState?.currentRound || 1)}`}
+          <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-fifa-blue flex flex-col gap-2 sm:gap-3 shadow-lg">
+            <h3 className="text-[10px] sm:text-xs text-fifa-blue font-black uppercase tracking-widest border-b border-neutral-800 pb-2">2. Campeonato</h3>
+            <button onClick={gerarCampeonato} className="w-full py-2 bg-fifa-blue/20 hover:bg-fifa-blue/30 border border-fifa-blue/50 text-fifa-blue font-bold rounded shadow transition-all text-[10px] sm:text-sm uppercase tracking-widest">Gerar Tabela</button>
+            <button onClick={simularRodadaAtual} disabled={salvando} className="w-full py-2 sm:py-3 bg-fifa-blue hover:bg-opacity-80 font-black rounded text-white shadow-lg transition-all text-xs sm:text-sm uppercase tracking-widest mt-auto">
+              {salvando ? 'Processando...' : `Simular Rodada ${Math.min(38, gameState?.currentRound || 1)}`}
             </button>
           </div>
 
-          <div className="bg-neutral-900 p-5 rounded-xl border-t-4 border-t-fifa-green flex flex-col gap-3 shadow-lg">
-            <h3 className="text-xs text-fifa-green font-black uppercase tracking-widest border-b border-neutral-800 pb-2">3. Meio de Temporada</h3>
-            <button onClick={iniciarJanelaTransferencias} className="w-full py-2 bg-fifa-green/20 hover:bg-fifa-green/30 border border-fifa-green/50 text-fifa-green font-bold rounded shadow transition-all text-sm">Abrir Janela de Transf.</button>
-            <button onClick={iniciarReturno} className="w-full py-2 bg-fifa-green hover:bg-opacity-80 text-white font-bold rounded shadow transition-all text-sm mt-auto">Iniciar Returno ▶️</button>
+          <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-fifa-green flex flex-col gap-2 sm:gap-3 shadow-lg">
+            <h3 className="text-[10px] sm:text-xs text-fifa-green font-black uppercase tracking-widest border-b border-neutral-800 pb-2">3. Meio de Temporada</h3>
+            <button onClick={iniciarJanelaTransferencias} className="w-full py-2 bg-fifa-green/20 hover:bg-fifa-green/30 border border-fifa-green/50 text-fifa-green font-bold rounded shadow transition-all text-[10px] sm:text-sm">Janela de Transf.</button>
+            <button onClick={iniciarReturno} className="w-full py-2 bg-fifa-green hover:bg-opacity-80 text-white font-bold rounded shadow transition-all text-[10px] sm:text-sm mt-auto">Iniciar Returno ▶️</button>
           </div>
 
-          <div className="bg-fifa-red/10 p-5 rounded-xl border border-fifa-red/30 flex flex-col justify-end">
-            <button onClick={resetarPreTemporada} disabled={salvando} className="w-full py-3 bg-fifa-red/20 hover:bg-fifa-red/40 border border-fifa-red/50 text-fifa-red font-black tracking-widest uppercase rounded shadow transition-all">🚨 Resetar Servidor</button>
+          <div className="bg-fifa-red/10 p-4 sm:p-5 rounded-xl border border-fifa-red/30 flex flex-col justify-end">
+            <button onClick={resetarPreTemporada} disabled={salvando} className="w-full py-2 sm:py-3 bg-fifa-red/20 hover:bg-fifa-red/40 border border-fifa-red/50 text-fifa-red font-black text-[10px] sm:text-sm tracking-widest uppercase rounded shadow transition-all">🚨 Resetar Servidor</button>
           </div>
         </div>
 
         {/* GERENCIADOR DE CLUBES */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pt-8 border-t border-neutral-900">
-          <div className="space-y-8">
-            <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-xl">
-              <h2 className="font-black text-lg text-white mb-4 uppercase tracking-widest flex items-center gap-2"><span className="text-fifa-blue">🤖</span> Importar JSON</h2>
-              <input type="text" placeholder="Prompt (Ex: Cruzeiro 2003)" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 text-white p-3 rounded-xl mb-3 focus:border-fifa-blue focus:ring-1 focus:ring-fifa-blue outline-none transition-all placeholder:text-neutral-600 font-bold"/>
-              {promptParaIA && <button onClick={() => navigator.clipboard.writeText(promptParaIA)} className="w-full mb-4 text-xs bg-fifa-blue/20 border border-fifa-blue/50 text-fifa-blue py-3 rounded-lg font-black uppercase tracking-widest hover:bg-fifa-blue/30 transition-colors">Copiar Prompt Gerado</button>}
-              <textarea placeholder='Cole o JSON retornado pela IA aqui...' value={jsonImportado} onChange={(e) => setJsonImportado(e.target.value)} className="w-full h-32 p-4 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-fifa-green font-mono mb-4 focus:border-fifa-blue outline-none placeholder:text-neutral-700"/>
-              <button onClick={carregarJson} disabled={!jsonImportado} className="w-full bg-fifa-blue text-white py-3 rounded-xl font-black uppercase tracking-widest hover:bg-opacity-80 disabled:opacity-50 transition-colors shadow-lg">Analisar e Editar JSON</button>
-              {erroJson && <p className="text-orange-500 text-xs mt-3 font-bold bg-orange-950/30 p-2 rounded">{erroJson}</p>}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 pt-6 sm:pt-8 border-t border-neutral-900">
+          <div className="space-y-6 sm:space-y-8">
+            {/* Bloco de Importação */}
+            <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl">
+              <h2 className="font-black text-base sm:text-lg text-white mb-4 uppercase tracking-widest flex items-center gap-2"><span className="text-fifa-blue">🤖</span> Importar JSON</h2>
+              <input type="text" placeholder="Prompt (Ex: Cruzeiro 2003)" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 text-white p-2 sm:p-3 rounded-xl mb-3 text-sm focus:border-fifa-blue outline-none transition-all placeholder:text-neutral-600 font-bold"/>
+              {promptParaIA && <button onClick={() => { navigator.clipboard.writeText(promptParaIA); toast.success("Prompt copiado!"); }} className="w-full mb-3 sm:mb-4 text-[10px] sm:text-xs bg-fifa-blue/20 border border-fifa-blue/50 text-fifa-blue py-2 sm:py-3 rounded-lg font-black uppercase tracking-widest hover:bg-fifa-blue/30 transition-colors">Copiar Prompt Gerado</button>}
+              <textarea placeholder='Cole o JSON retornado pela IA aqui...' value={jsonImportado} onChange={(e) => setJsonImportado(e.target.value)} className="w-full h-24 sm:h-32 p-3 sm:p-4 bg-neutral-950 border border-neutral-800 rounded-xl text-[10px] sm:text-xs text-fifa-green font-mono mb-3 sm:mb-4 focus:border-fifa-blue outline-none placeholder:text-neutral-700"/>
+              <button onClick={carregarJson} disabled={!jsonImportado} className="w-full bg-fifa-blue text-white py-2 sm:py-3 text-xs sm:text-sm rounded-xl font-black uppercase tracking-widest hover:bg-opacity-80 disabled:opacity-50 transition-colors shadow-lg">Analisar JSON</button>
+              {erroJson && <p className="text-orange-500 text-[10px] sm:text-xs mt-3 font-bold bg-orange-950/30 p-2 rounded">{erroJson}</p>}
             </div>
 
-            <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-xl max-h-125 overflow-y-auto custom-scrollbar">
-              <h2 className="font-black text-lg text-white mb-4 uppercase tracking-widest flex items-center justify-between">Banco de Clubes <span className="bg-neutral-800 text-neutral-400 text-xs py-1 px-3 rounded-full">{clubesSalvos.length}</span></h2>
-              <div className="space-y-3">
+            {/* Banco de Clubes */}
+            <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl max-h-96 sm:max-h-125 overflow-y-auto custom-scrollbar">
+              <h2 className="font-black text-base sm:text-lg text-white mb-4 uppercase tracking-widest flex items-center justify-between">Banco <span className="bg-neutral-800 text-neutral-400 text-[10px] sm:text-xs py-1 px-3 rounded-full">{clubesSalvos.length}</span></h2>
+              <div className="space-y-2 sm:space-y-3">
                 {clubesSalvos.map(clube => (
-                  <div key={clube.id} className="flex justify-between items-center bg-neutral-950 p-4 rounded-xl border border-neutral-800 hover:border-neutral-700 hover:bg-neutral-900/50 transition-all group">
-                    <div>
-                      <p className="font-black text-white uppercase tracking-tight">{clube.nome} <span className="text-fifa-green">{clube.ano}</span></p>
-                      <p className="text-[10px] text-fifa-blue font-black uppercase tracking-widest mt-1">{clube.elenco.length} Atletas • OVR: {getClubeOvr(clube.elenco)}</p>
+                  <div key={clube.id} className="flex justify-between items-center bg-neutral-950 p-3 sm:p-4 rounded-xl border border-neutral-800 hover:border-neutral-700 transition-all group">
+                    <div className="truncate pr-2">
+                      <p className="font-black text-white text-xs sm:text-sm uppercase tracking-tight truncate">{clube.nome} <span className="text-fifa-green">{clube.ano}</span></p>
+                      <p className="text-[8px] sm:text-[10px] text-fifa-blue font-black uppercase tracking-widest mt-0.5 sm:mt-1">{clube.elenco.length} Atletas • OVR: {getClubeOvr(clube.elenco)}</p>
                     </div>
-                    <div className="flex gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => setClubeEmEdicao(clube)} className="text-xs bg-neutral-800 px-4 py-2 rounded-lg font-black text-white hover:bg-neutral-700 hover:text-fifa-blue transition-colors shadow-sm">Editar</button>
-                      <button onClick={() => excluirClube(clube.id)} className="text-xs bg-fifa-red/20 text-fifa-red px-3 py-2 rounded-lg font-black hover:bg-fifa-red hover:text-white transition-colors">X</button>
+                    <div className="flex gap-1 sm:gap-2 shrink-0">
+                      <button onClick={() => setClubeEmEdicao(clube)} className="text-[10px] sm:text-xs bg-neutral-800 px-2 sm:px-4 py-1 sm:py-2 rounded-lg font-black text-white hover:bg-neutral-700 hover:text-fifa-blue transition-colors">Edit</button>
+                      <button onClick={() => excluirClube(clube.id)} className="text-[10px] sm:text-xs bg-fifa-red/20 text-fifa-red px-2 sm:px-3 py-1 sm:py-2 rounded-lg font-black hover:bg-fifa-red hover:text-white transition-colors">X</button>
                     </div>
                   </div>
                 ))}
@@ -488,52 +554,53 @@ export default function Admin() {
 
           <div className="lg:col-span-2">
             {clubeEmEdicao ? (
-              <div className="bg-neutral-900 p-6 rounded-xl border border-fifa-green/50 shadow-[0_0_30px_rgba(60,172,59,0.05)] flex flex-col h-full">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 border-b border-neutral-800 pb-6 gap-4">
+              <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-fifa-green/50 shadow-[0_0_30px_rgba(60,172,59,0.05)] flex flex-col h-full">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 sm:mb-6 border-b border-neutral-800 pb-4 sm:pb-6 gap-3 sm:gap-4">
                   <div>
-                    <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Inspetor de Elenco</h2>
-                    <p className="text-xs text-neutral-500 font-bold uppercase tracking-widest mt-1">Ajuste OVR e posições antes de injetar na base.</p>
+                    <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tighter">Inspetor de Elenco</h2>
+                    <p className="text-[10px] sm:text-xs text-neutral-500 font-bold uppercase tracking-widest mt-1">Ajuste OVR e posições.</p>
                   </div>
-                  <div className="flex gap-3 w-full md:w-auto">
-                    <button onClick={() => setClubeEmEdicao(null)} className="flex-1 md:flex-none px-6 py-3 bg-neutral-800 rounded-xl font-black uppercase tracking-widest text-neutral-400 hover:bg-neutral-700 hover:text-white transition-colors">Descartar</button>
-                    <button onClick={salvarClube} disabled={salvando} className="flex-1 md:flex-none px-6 py-3 bg-fifa-green rounded-xl font-black uppercase tracking-widest text-white hover:bg-opacity-80 shadow-[0_0_15px_rgba(60,172,59,0.3)] transition-colors">{salvando ? 'A Processar...' : 'Injetar na Base'}</button>
+                  <div className="flex gap-2 sm:gap-3 w-full md:w-auto">
+                    <button onClick={() => setClubeEmEdicao(null)} className="flex-1 md:flex-none px-4 sm:px-6 py-2 sm:py-3 bg-neutral-800 rounded-xl text-xs sm:text-sm font-black uppercase tracking-widest text-neutral-400 hover:bg-neutral-700 hover:text-white transition-colors">Descartar</button>
+                    <button onClick={salvarClube} disabled={salvando} className="flex-1 md:flex-none px-4 sm:px-6 py-2 sm:py-3 bg-fifa-green rounded-xl text-xs sm:text-sm font-black uppercase tracking-widest text-white hover:bg-opacity-80 transition-colors">{salvando ? 'Salvando...' : 'Injetar'}</button>
                   </div>
                 </div>
 
-                <div className="flex flex-col md:flex-row gap-4 mb-8">
+                <div className="flex flex-col md:flex-row gap-3 sm:gap-4 mb-4 sm:mb-8">
                   <div className="flex-1">
-                    <label className="block text-[10px] font-black text-fifa-blue uppercase tracking-widest mb-2">Designação do Clube</label>
-                    <input type="text" value={clubeEmEdicao.nome} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, nome: e.target.value})} className="w-full bg-neutral-950 border border-neutral-800 p-4 rounded-xl text-white font-black uppercase focus:border-fifa-blue focus:ring-1 focus:ring-fifa-blue outline-none transition-all"/>
+                    <label className="block text-[8px] sm:text-[10px] font-black text-fifa-blue uppercase tracking-widest mb-1 sm:mb-2">Designação</label>
+                    <input type="text" value={clubeEmEdicao.nome} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, nome: e.target.value})} className="w-full bg-neutral-950 border border-neutral-800 p-3 sm:p-4 rounded-xl text-white text-sm font-black uppercase focus:border-fifa-blue outline-none transition-all"/>
                   </div>
-                  <div className="w-full md:w-40">
-                    <label className="block text-[10px] font-black text-fifa-blue uppercase tracking-widest mb-2">Temporada</label>
-                    <input type="number" value={clubeEmEdicao.ano} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, ano: Number(e.target.value)})} className="w-full bg-neutral-950 border border-neutral-800 p-4 rounded-xl text-fifa-green font-black text-center focus:border-fifa-blue focus:ring-1 focus:ring-fifa-blue outline-none transition-all"/>
+                  <div className="w-full md:w-32 sm:w-40">
+                    <label className="block text-[8px] sm:text-[10px] font-black text-fifa-blue uppercase tracking-widest mb-1 sm:mb-2">Temporada</label>
+                    <input type="number" value={clubeEmEdicao.ano} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, ano: Number(e.target.value)})} className="w-full bg-neutral-950 border border-neutral-800 p-3 sm:p-4 rounded-xl text-fifa-green text-sm font-black text-center focus:border-fifa-blue outline-none transition-all"/>
                   </div>
                 </div>
 
-                <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4 flex-1">
-                  <div className="grid grid-cols-12 gap-4 px-4 pb-2 text-[10px] text-neutral-500 font-black uppercase tracking-widest border-b border-neutral-800 mb-4">
-                    <div className="col-span-6 md:col-span-5">Atleta</div>
-                    <div className="col-span-3 md:col-span-3">Setor</div>
-                    <div className="col-span-3 md:col-span-2 text-center">OVR</div>
+                <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-2 sm:p-4 flex-1">
+                  <div className="flex px-2 sm:px-4 pb-2 text-[8px] sm:text-[10px] text-neutral-500 font-black uppercase tracking-widest border-b border-neutral-800 mb-2 sm:mb-4">
+                    <div className="flex-3 sm:flex-5">Atleta</div>
+                    <div className="flex-2 sm:flex-3 text-center">Setor</div>
+                    <div className="flex-2 sm:flex-2 text-center">OVR</div>
+                    <div className="hidden sm:block flex-1 sm:flex-2"></div>
                   </div>
-                  <div className="space-y-3 max-h-125 overflow-y-auto custom-scrollbar pr-2">
+                  <div className="space-y-2 sm:space-y-3 max-h-75 sm:max-h-125 overflow-y-auto custom-scrollbar pr-1 sm:pr-2">
                     {clubeEmEdicao.elenco.map((jogador, index) => (
-                      <div key={jogador.id || index} className="grid grid-cols-12 gap-4 bg-neutral-900/50 p-3 rounded-lg border border-neutral-800 items-center hover:border-neutral-700 transition-colors focus-within:border-fifa-blue/50">
-                        <div className="col-span-6 md:col-span-5">
-                          <input type="text" value={jogador.nome} onChange={(e) => handleEditJogador(jogador.id, 'nome', e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded-lg text-white text-sm font-bold focus:border-fifa-blue outline-none transition-colors"/>
+                      <div key={jogador.id || index} className="flex gap-2 sm:gap-4 bg-neutral-900/50 p-2 sm:p-3 rounded-lg border border-neutral-800 items-center hover:border-neutral-700 transition-colors">
+                        <div className="flex-3 sm:flex-5">
+                          <input type="text" value={jogador.nome} onChange={(e) => handleEditJogador(jogador.id, 'nome', e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 p-2 sm:p-3 rounded-lg text-white text-[10px] sm:text-sm font-bold focus:border-fifa-blue outline-none transition-colors"/>
                         </div>
-                        <div className="col-span-3 md:col-span-3">
-                          <select value={jogador.posicao} onChange={(e) => handleEditJogador(jogador.id, 'posicao', e.target.value as Posicao)} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded-lg text-fifa-blue text-sm font-black focus:border-fifa-blue outline-none transition-colors cursor-pointer">
+                        <div className="flex-2 sm:flex-3">
+                          <select value={jogador.posicao} onChange={(e) => handleEditJogador(jogador.id, 'posicao', e.target.value as Posicao)} className="w-full bg-neutral-950 border border-neutral-800 p-2 sm:p-3 rounded-lg text-fifa-blue text-[10px] sm:text-sm font-black focus:border-fifa-blue outline-none transition-colors cursor-pointer text-center sm:text-left">
                             <option value="GOL">GOL</option><option value="DEF">DEF</option><option value="MEI">MEI</option><option value="ATA">ATA</option>
                           </select>
                         </div>
-                        <div className="col-span-3 md:col-span-2">
-                          <input type="number" value={jogador.overall} onChange={(e) => handleEditJogador(jogador.id, 'overall', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 p-3 rounded-lg text-fifa-green font-black text-center text-sm focus:border-fifa-blue outline-none transition-colors"/>
+                        <div className="flex-2 sm:flex-2">
+                          <input type="number" value={jogador.overall} onChange={(e) => handleEditJogador(jogador.id, 'overall', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 p-2 sm:p-3 rounded-lg text-fifa-green font-black text-center text-[10px] sm:text-sm focus:border-fifa-blue outline-none transition-colors"/>
                         </div>
-                        <div className="hidden md:flex col-span-2 items-center justify-center gap-3">
-                          <span className={`text-sm ${jogador.statusFisico?.lesionado ? 'text-red-500 drop-shadow-md' : 'text-neutral-700 opacity-20'}`} title="Risco de Lesão">🏥</span>
-                          <span className={`text-sm ${jogador.statusFisico?.suspenso ? 'text-orange-500 drop-shadow-md' : 'text-neutral-700 opacity-20'}`} title="Suspenso">🟥</span>
+                        <div className="hidden sm:flex flex-1 sm:flex-2 items-center justify-center gap-2 sm:gap-3">
+                          <span className={`text-xs sm:text-sm ${jogador.statusFisico?.lesionado ? 'text-red-500 drop-shadow-md' : 'text-neutral-700 opacity-20'}`} title="Risco de Lesão">🏥</span>
+                          <span className={`text-xs sm:text-sm ${jogador.statusFisico?.suspenso ? 'text-orange-500 drop-shadow-md' : 'text-neutral-700 opacity-20'}`} title="Suspenso">🟥</span>
                         </div>
                       </div>
                     ))}
@@ -541,10 +608,10 @@ export default function Admin() {
                 </div>
               </div>
             ) : (
-              <div className="h-full min-h-100 flex flex-col items-center justify-center border-2 border-dashed border-neutral-800 rounded-2xl p-10 text-neutral-600 bg-neutral-900/30">
-                <span className="text-7xl mb-6 grayscale opacity-20">⚙️</span>
-                <p className="font-black text-2xl uppercase tracking-tighter text-neutral-500">Inspetor de Elenco</p>
-                <p className="text-sm font-bold text-neutral-600 mt-2 uppercase tracking-widest">Aguardando importação ou seleção.</p>
+              <div className="h-full min-h-64 sm:min-h-100 flex flex-col items-center justify-center border-2 border-dashed border-neutral-800 rounded-2xl p-6 sm:p-10 text-neutral-600 bg-neutral-900/30">
+                <span className="text-5xl sm:text-7xl mb-4 sm:mb-6 grayscale opacity-20">⚙️</span>
+                <p className="font-black text-xl sm:text-2xl uppercase tracking-tighter text-neutral-500 text-center">Inspetor de Elenco</p>
+                <p className="text-[10px] sm:text-sm font-bold text-neutral-600 mt-2 uppercase tracking-widest text-center">Aguardando importação.</p>
               </div>
             )}
           </div>
