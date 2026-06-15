@@ -33,24 +33,40 @@ export default function Championship() {
     return time ? time.nome : "Time não encontrado";
   };
 
-  // MATEMÁTICA DINÂMICA
+  // MATEMÁTICA DINÂMICA (Para rodadas e Classificações)
   const totalTeams = (gameState as any)?.totalTeams || 20;
   const totalRounds = (totalTeams - 1) * 2;
   const midSeason = totalTeams - 1;
+
+  // CÁLCULO DINÂMICO DE VAGAS NA TABELA DE CLASSIFICAÇÃO
+  const tLibertadores = Math.max(1, Math.floor(totalTeams * 0.20)); // Top 20%
+  const tPreLiberta = tLibertadores + Math.max(1, Math.floor(totalTeams * 0.10)); // +10%
+  const tSudamericana = tPreLiberta + Math.max(1, Math.floor(totalTeams * 0.30)); // +30%
+  const tRebaixamento = totalTeams - Math.max(1, Math.floor(totalTeams * 0.20)); // Últimos 20%
+
+  // Função que diz a cor da linha da tabela de acordo com a posição (index 0 = 1º lugar)
+  const getCorTabela = (index: number) => {
+    if (index < tLibertadores) return 'text-cyan-400';
+    if (index < tPreLiberta) return 'text-blue-400';
+    if (index < tSudamericana) return 'text-green-400';
+    if (index >= tRebaixamento) return 'text-orange-500';
+    return 'text-neutral-500'; // Zona Morte (Cinza)
+  };
 
   if (gameState.phase === 'FINISHED' || gameState.currentRound > totalRounds) {
     const standings = gameState.standings || [];
     const campeao = standings[0];
     
+    // Matemática Dinâmica de Recompensa (O campeão e rebaixados ganham o mesmo, o meio adapta)
     const calcularPontosTemporada = (posicaoIndex: number) => {
       if (posicaoIndex === 0) return 100;
       if (posicaoIndex === 1) return 80;
       if (posicaoIndex === 2) return 70;
       if (posicaoIndex === 3) return 60;
-      if (posicaoIndex <= 5) return 50;
-      if (posicaoIndex <= 11) return 30;
-      if (posicaoIndex <= 15) return 10;
-      return 0;
+      if (posicaoIndex < tPreLiberta) return 50;
+      if (posicaoIndex < tSudamericana) return 30;
+      if (posicaoIndex < tRebaixamento) return 10;
+      return 0; // Rebaixados não ganham XP
     };
 
     const artilheirosMap: Record<string, { nome: string; gols: number }> = {};
@@ -143,7 +159,7 @@ export default function Championship() {
                     const isUser = gameState.teams?.find(t => t.id === time.id)?.isUser;
                     return (
                       <tr key={time.id} className={`text-sm border-b border-neutral-800/50 hover:bg-neutral-800 transition-colors ${time.id === currentUserUid ? 'bg-yellow-900/20' : ''}`}>
-                        <td className={`py-3 text-center font-black ${index < 4 ? 'text-cyan-400' : index < 6 ? 'text-blue-400' : index >= 6 && index <= 11 ? 'text-green-400' : index > 15 ? 'text-orange-500' : 'text-neutral-500'}`}>
+                        <td className={`py-3 text-center font-black ${getCorTabela(index)}`}>
                           {index + 1}
                         </td>
                         <td className={`py-3 font-black uppercase tracking-tighter truncate max-w-37.5 ${time.id === currentUserUid ? 'text-fifa-green' : (isUser ? 'text-white' : 'text-neutral-400')}`}>
@@ -154,7 +170,7 @@ export default function Championship() {
                         <td className="py-3 text-center text-neutral-400 font-bold hidden sm:table-cell">{time.v}</td>
                         <td className="py-3 text-center text-neutral-400 font-bold">{time.sg > 0 ? `+${time.sg}` : time.sg}</td>
                         <td className="py-3 text-center">
-                           <span className={`text-[10px] px-2 py-1 rounded font-black tracking-widest ${index < 4 ? 'bg-cyan-900/30 text-cyan-400 border border-cyan-800' : index > 15 ? 'bg-red-900/20 text-red-500' : 'bg-neutral-800 text-neutral-400'}`}>
+                           <span className={`text-[10px] px-2 py-1 rounded font-black tracking-widest ${index < tLibertadores ? 'bg-cyan-900/30 text-cyan-400 border border-cyan-800' : index >= tRebaixamento ? 'bg-red-900/20 text-red-500' : 'bg-neutral-800 text-neutral-400'}`}>
                               +{calcularPontosTemporada(index)}
                            </span>
                         </td>
@@ -163,11 +179,12 @@ export default function Championship() {
                   })}
                 </tbody>
               </table>
+              
               <div className="mt-4 pt-4 border-t border-neutral-800 text-[10px] font-bold tracking-widest uppercase flex flex-wrap gap-4 justify-between">
-                <span className="text-cyan-400">■ Grupos Libertadores</span>
-                <span className="text-blue-400">■ Qualificatórias Libertadores</span>
-                <span className="text-green-400">■ Grupos Sudamericana</span>
-                <span className="text-orange-500">■ Z4 (Rebaixamento)</span>
+                <span className="text-cyan-400">■ G{tLibertadores} (Libertadores)</span>
+                <span className="text-blue-400">■ G{tPreLiberta} (Qualificatórias)</span>
+                <span className="text-green-400">■ G{tSudamericana} (Sul-Americana)</span>
+                <span className="text-orange-500">■ Z{totalTeams - tRebaixamento} (Rebaixamento)</span>
               </div>
             </div>
           </div>
@@ -312,7 +329,7 @@ export default function Championship() {
                   const isUser = gameState.teams?.find(t => t.id === time.id)?.isUser;
                   return (
                     <tr key={time.id} className={`text-[10px] sm:text-sm border-b border-neutral-800/50 hover:bg-neutral-800 transition-colors ${time.id === currentUserUid ? 'bg-fifa-blue/20' : ''}`}>
-                      <td className={`py-3 sm:py-4 text-center font-black ${index < 4 ? 'text-cyan-400' : index < 6 ? 'text-blue-400' : index >= 6 && index <= 11 ? 'text-green-400' : index > 15 ? 'text-orange-500' : 'text-neutral-500'}`}>{index + 1}</td>
+                      <td className={`py-3 sm:py-4 text-center font-black ${getCorTabela(index)}`}>{index + 1}</td>
                       <td className={`py-3 sm:py-4 font-black uppercase tracking-tighter truncate max-w-24 sm:max-w-35 ${time.id === currentUserUid ? 'text-fifa-green' : (isUser ? 'text-white' : 'text-neutral-400')}`}>{getNomeClube(time.id)}</td>
                       <td className="py-3 sm:py-4 text-center font-black text-white bg-neutral-950/50 rounded">{time.pts}</td>
                       <td className="py-3 sm:py-4 text-center text-neutral-400 font-bold">{time.j}</td>
@@ -323,6 +340,12 @@ export default function Championship() {
                 })}
               </tbody>
             </table>
+          </div>
+          <div className="mt-4 pt-4 border-t border-neutral-800 text-[8px] sm:text-[10px] font-bold tracking-widest uppercase flex flex-wrap gap-2 sm:gap-4 justify-between">
+            <span className="text-cyan-400">■ G{tLibertadores} (Libertadores)</span>
+            <span className="text-blue-400">■ G{tPreLiberta} (Qualificatórias)</span>
+            <span className="text-green-400">■ G{tSudamericana} (Sul-Americana)</span>
+            <span className="text-orange-500">■ Z{totalTeams - tRebaixamento} (Rebaixamento)</span>
           </div>
         </div>
 

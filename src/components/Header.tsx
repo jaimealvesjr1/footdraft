@@ -96,7 +96,7 @@ export default function Header() {
         </nav>
 
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/admin')} className="hidden md:flex text-[10px] bg-neutral-900 border border-neutral-800 hover:border-fifa-gray-dark text-fifa-gray-light px-3 py-2 rounded-lg font-black uppercase tracking-widest transition-colors">Game Master</button>
+          <button onClick={() => navigate('/admin')} className="hidden md:flex text-[10px] bg-neutral-900 border border-neutral-800 hover:border-fifa-gray-dark text-fifa-gray-light px-3 py-2 rounded-lg font-black uppercase tracking-widest transition-colors">CBF</button>
 
           <div className="flex items-center gap-3 pl-4 border-l border-neutral-800">
             <div className="flex items-center gap-2 bg-neutral-900/50 py-1 pl-1 pr-4 rounded-full border border-neutral-800 shadow-inner">

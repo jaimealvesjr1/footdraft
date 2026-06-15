@@ -330,7 +330,7 @@ export default function Admin() {
 
       await updateDoc(doc(db, "game", "state"), {
         schedule: updatedSchedule, standings: novosStandings, currentRound: rodadaVerdadeira + 1,
-        phase: proximaFase, playersReady: []
+        phase: proximaFase, playersReady: [], playersInLive: []
       });
 
       toast.success(mensagemAlert);
@@ -384,15 +384,8 @@ export default function Admin() {
     setSalvando(true);
     try {
       const usersSnap = await getDocs(collection(db, "usuarios"));
-      // RESET BLINDADO: Limpa tudo que o usuário acumulou durante a temporada[cite: 2]
       const promessasUsuarios = usersSnap.docs.map(docSnap => updateDoc(doc(db, "usuarios", docSnap.id), { 
-        elenco: [], 
-        elencoPronto: false, 
-        titularesIds: [], 
-        trocasPermitidas: 0, 
-        trocasRealizadas: 0, 
-        jogadoresDispensados: [],
-        taticasSalvas: {}
+        elenco: [], elencoPronto: false, titularesIds: [], trocasPermitidas: 0, trocasRealizadas: 0, jogadoresDispensados: [], taticasSalvas: {} 
       }));
       
       const clubesSnap = await getDocs(collection(db, "clubes"));
@@ -406,10 +399,7 @@ export default function Admin() {
 
       await Promise.all([...promessasUsuarios, ...promessasClubes]);
       
-      await setDoc(doc(db, "game", "state"), { 
-        phase: 'SETUP', currentRound: 1, draftOrder: [], draftTurnUid: null, 
-        playersReady: [], teams: [], standings: [], schedule: [], playersInLive: [] 
-      });
+      await setDoc(doc(db, "game", "state"), { phase: 'SETUP', currentRound: 1, draftOrder: [], draftTurnUid: null, playersReady: [], teams: [], standings: [], schedule: [], playersInLive: [] });
       toast.success("Reset profundo concluído! O servidor está limpo.");
     } catch (error) { toast.error("Erro ao resetar o servidor."); } finally { setSalvando(false); }
   };
@@ -421,6 +411,15 @@ export default function Admin() {
     return Math.round(sum / 11);
   };
 
+  // ==========================================
+  // CÁLCULOS DO RADAR DE JOGADORES (ADMIN)
+  // ==========================================
+  const timesProntos = gameState?.teams?.filter(t => t.isUser && gameState.playersReady?.includes(t.id)) || [];
+  const timesNaTv = gameState?.teams?.filter(t => t.isUser && (gameState as any)?.playersInLive?.includes(t.id)) || [];
+  const totalHumanos = gameState?.teams?.filter(t => t.isUser).length || 0;
+  
+  const podeDarApito = totalHumanos > 0 && timesNaTv.length >= totalHumanos;
+
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-200 p-4 sm:p-8 font-fifa">
       <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
@@ -428,7 +427,7 @@ export default function Admin() {
         {/* CABEÇALHO */}
         <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl gap-4 sm:gap-6">
           <div className="flex-1 w-full text-center md:text-left">
-            <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">Painel do <span className="text-fifa-blue">Game Master</span></h1>
+            <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">Painel da <span className="text-fifa-blue">CBF</span></h1>
             <p className="text-xs sm:text-sm text-neutral-400 mt-2 font-bold tracking-widest uppercase">
               Fase Atual: <span className="text-fifa-green">{gameState?.phase || '...'}</span> <br className="md:hidden" /> <span className="hidden md:inline">|</span> Rodada: <span className="text-fifa-blue">{gameState?.currentRound || 0}</span>/{(gameState as any)?.totalTeams ? ((gameState as any).totalTeams - 1) * 2 : 38}
             </p>
@@ -436,9 +435,26 @@ export default function Admin() {
               <div className="bg-linear-to-r from-fifa-green via-fifa-blue to-fifa-red h-full transition-all duration-1000" style={{ width: `${Math.min(100, ((gameState?.currentRound || 0) / (((gameState as any)?.totalTeams || 20) - 1) * 2) * 100)}%` }}></div>
             </div>
           </div>
-          <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 text-center w-full md:w-auto md:min-w-40">
-            <p className="text-[10px] sm:text-xs text-neutral-500 uppercase font-black">Jogadores Prontos</p>
-            <p className="text-2xl sm:text-3xl font-black text-fifa-green">{gameState?.playersReady?.length || 0}</p>
+          
+          {/* RADAR DE JOGADORES AO VIVO */}
+          <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
+            <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 text-center flex-1 md:min-w-40 flex flex-col justify-center">
+              <p className="text-[10px] text-neutral-500 uppercase font-black">Escalações Prontas</p>
+              <p className="text-xl sm:text-2xl font-black text-fifa-green leading-none my-1">{timesProntos.length} <span className="text-sm text-neutral-600">/ {totalHumanos}</span></p>
+              <div className="flex flex-wrap gap-1 justify-center mt-1">
+                {timesProntos.map(t => <span key={t.id} className="text-[8px] bg-fifa-green/10 text-fifa-green px-1.5 py-0.5 rounded border border-fifa-green/30">{t.nome}</span>)}
+              </div>
+            </div>
+
+            <div className={`bg-neutral-950 p-4 rounded-lg border text-center flex-1 md:min-w-40 transition-all flex flex-col justify-center ${podeDarApito ? 'border-yellow-500/50 shadow-[0_0_15px_rgba(234,179,8,0.2)]' : 'border-neutral-800'}`}>
+              <p className="text-[10px] text-neutral-500 uppercase font-black">Na TV (Estádio)</p>
+              <p className={`text-xl sm:text-2xl font-black leading-none my-1 ${podeDarApito ? 'text-yellow-500 animate-pulse' : 'text-neutral-400'}`}>
+                {timesNaTv.length} <span className="text-sm text-neutral-600">/ {totalHumanos}</span>
+              </p>
+              <div className="flex flex-wrap gap-1 justify-center mt-1">
+                {timesNaTv.map(t => <span key={t.id} className="text-[8px] bg-yellow-500/10 text-yellow-500 px-1.5 py-0.5 rounded border border-yellow-500/30">{t.nome}</span>)}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -460,7 +476,8 @@ export default function Admin() {
               </select>
               <button onClick={gerarCampeonato} className="flex-1 py-2 bg-fifa-blue/20 hover:bg-fifa-blue/30 border border-fifa-blue/50 text-fifa-blue font-bold rounded shadow transition-all text-[10px] sm:text-xs uppercase tracking-widest">Gerar Tabela</button>
             </div>
-            <button onClick={simularRodadaAtual} disabled={salvando} className="w-full py-2 sm:py-3 bg-fifa-blue hover:bg-opacity-80 font-black rounded text-white shadow-lg transition-all text-xs sm:text-sm uppercase tracking-widest mt-auto">
+            {/* BOTÃO DE SIMULAÇÃO VISUALMENTE ATRAENTE SE TODOS ESTIVEREM PRONTOS */}
+            <button onClick={simularRodadaAtual} disabled={salvando} className={`w-full py-2 sm:py-3 hover:bg-opacity-80 font-black rounded text-white shadow-lg transition-all text-xs sm:text-sm uppercase tracking-widest mt-auto ${podeDarApito ? 'bg-yellow-500 text-neutral-900 shadow-[0_0_20px_rgba(234,179,8,0.5)] animate-bounce' : 'bg-fifa-blue'}`}>
               {salvando ? 'Processando...' : `Simular Rodada ${Math.min(((gameState as any)?.totalTeams ? ((gameState as any).totalTeams - 1) * 2 : 38), gameState?.currentRound || 1)}`}
             </button>
           </div>

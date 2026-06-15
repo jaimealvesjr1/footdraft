@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { db } from "../services/firebase";
+import { db, auth } from "../services/firebase";
 import { doc, onSnapshot } from "firebase/firestore";
 import { type GameState } from "../types";
 import { type EventoPartida } from "../services/matchEngine";
@@ -15,6 +15,7 @@ interface JogoAoVivo {
 export default function Matches() {
   const navigate = useNavigate();
   const [gameState, setGameState] = useState<GameState | null>(null);
+  const currentUserUid = auth.currentUser?.uid;
   
   const [simulacaoAoVivo, setSimulacaoAoVivo] = useState(false);
   const [minuto, setMinuto] = useState(0);
@@ -22,8 +23,42 @@ export default function Matches() {
   const [rodadaSendoTransmitida, setRodadaSendoTransmitida] = useState<number>(1);
   
   const rodadaEsperadaRef = useRef<number | null>(null);
+  const [meuTimeValido, setMeuTimeValido] = useState(true);
 
-  // 1. A TV APENAS ESCUTA O SERVIDOR
+  // OUVINDO O STATUS DO TIME PARA O FIM DO JOGO
+  useEffect(() => {
+    if (!currentUserUid) return;
+    const unsubUser = onSnapshot(doc(db, "usuarios", currentUserUid), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const elenco = data.elenco || [];
+        const titularesIds = data.titularesIds || [];
+        
+        if (titularesIds.length < 11 || titularesIds.includes(null)) {
+          setMeuTimeValido(false);
+          return;
+        }
+        
+        let valido = true;
+        let temGoleiro = false;
+        
+        for (const id of titularesIds) {
+          const jog = elenco.find((j: any) => j.id === id);
+          if (!jog || jog.statusFisico?.lesionado || jog.statusFisico?.suspenso) {
+            valido = false;
+            break;
+          }
+          if (jog.posicao.toUpperCase().includes('GOL') || jog.posicao.toUpperCase() === 'GL') {
+            temGoleiro = true;
+          }
+        }
+        setMeuTimeValido(valido && temGoleiro);
+      }
+    });
+    return () => unsubUser();
+  }, [currentUserUid]);
+
+  // A TV APENAS ESCUTA O SERVIDOR
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "game", "state"), (docSnap) => {
       if (docSnap.exists()) {
@@ -35,10 +70,8 @@ export default function Matches() {
           const rodadaAlvo = indexNaoSimulada !== -1 ? indexNaoSimulada : (data.schedule?.length ?? 0);
 
           if (rodadaEsperadaRef.current === null) {
-            // A TV foi ligada. Memoriza em qual rodada o campeonato está.
             rodadaEsperadaRef.current = rodadaAlvo;
           } else if (rodadaEsperadaRef.current < rodadaAlvo && !simulacaoAoVivo) {
-            // O GATILHO: O Admin simulou a rodada! A TV dispara o Playback.
             iniciarPlayback(data, rodadaEsperadaRef.current);
             rodadaEsperadaRef.current = rodadaAlvo; 
           }
@@ -48,7 +81,6 @@ export default function Matches() {
     return () => unsub();
   }, [simulacaoAoVivo]);
 
-  // 2. RELÓGIO ACELERADO (150ms)
   useEffect(() => {
     if (!simulacaoAoVivo) return;
     const timer = setInterval(() => {
@@ -63,7 +95,6 @@ export default function Matches() {
     return () => clearInterval(timer);
   }, [simulacaoAoVivo]);
 
-  // 3. DISTRIBUIÇÃO DOS EVENTOS NO TEMPO
   useEffect(() => {
     if (minuto === 0 || minuto > 90) return;
     setPartidasAoVivo((partidas) =>
@@ -117,8 +148,12 @@ export default function Matches() {
 
   if (!gameState) return <div className="h-screen bg-neutral-950 flex items-center justify-center"><p className="text-yellow-500 font-bold animate-pulse tracking-widest uppercase text-sm sm:text-base">Conectando à Central de TV...</p></div>;
 
-  // TELA DE ESPERA PASSIVA
+  // ==========================================
+  // TELA DE ESPERA COM "DEDODURO" DE ATRASADOS
+  // ==========================================
   if (!simulacaoAoVivo) {
+    const timesFaltando = gameState?.teams?.filter(t => t.isUser && !(gameState as any)?.playersInLive?.includes(t.id)) || [];
+
     return (
       <div className="p-4 sm:p-8 bg-neutral-950 min-h-screen flex items-center justify-center text-neutral-200 font-fifa">
         <div className="max-w-xl mx-auto w-full text-center bg-neutral-900 p-6 sm:p-10 rounded-2xl border border-neutral-800 shadow-2xl relative overflow-hidden">
@@ -136,12 +171,30 @@ export default function Matches() {
               Aguardando o Apito Inicial
             </h2>
             <p className="text-neutral-500 text-[10px] sm:text-xs mt-3 font-bold uppercase tracking-widest">
-              Aguardando o Game Master simular a rodada no servidor...
+              Jogadores está aquecendo no pré-jogo...
             </p>
+
+            {/* LISTA QUEM AINDA NÃO CHEGOU NA TV */}
+            {timesFaltando.length > 0 ? (
+               <div className="mt-8 p-4 bg-neutral-950 rounded-xl border border-neutral-800 inline-block text-center w-full shadow-inner">
+                  <p className="text-[10px] text-orange-500 font-bold uppercase tracking-widest mb-3">Técnicos Atrasados (Não estão na TV):</p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {timesFaltando.map(t => (
+                      <span key={t.id} className="text-[10px] text-neutral-400 bg-neutral-900 border border-neutral-700 px-2 py-1 rounded">
+                        {t.nome}
+                      </span>
+                    ))}
+                  </div>
+               </div>
+            ) : (
+               <p className="text-fifa-green font-black text-xs sm:text-sm uppercase tracking-widest mt-8 animate-pulse">
+                  Todos os técnicos estão no estádio!
+               </p>
+            )}
           </div>
 
           <button onClick={() => navigate('/championship')} className="mt-4 sm:mt-8 text-[10px] sm:text-xs text-neutral-600 hover:text-white uppercase font-bold tracking-widest transition-colors block mx-auto border border-neutral-800 py-3 px-6 rounded-lg">
-            Voltar para o Campeonato
+            Sair do Estádio (Voltar ao Campeonato)
           </button>
         </div>
       </div>
@@ -158,9 +211,20 @@ export default function Matches() {
           Multicast - Rodada {rodadaSendoTransmitida}
         </h2>
         <div className="text-5xl sm:text-6xl font-black font-mono text-white tracking-tighter">{minuto}'</div>
+        
+        {/* NOVO BLOQUEIO: Não pode mais ficar na TV. Deve voltar e fazer o Check-in. */}
         {minuto >= 90 && (
-          <button onClick={() => setSimulacaoAoVivo(false)} className="mt-4 sm:mt-6 bg-fifa-blue hover:bg-opacity-80 px-4 py-2 sm:px-8 sm:py-3 rounded-xl text-white font-black text-xs sm:text-base uppercase tracking-widest transition-colors shadow-lg shadow-fifa-blue/50">
-            Aguardar Próxima Rodada
+          <button 
+            onClick={() => {
+              setSimulacaoAoVivo(false);
+              // Força o jogador a sair da TV de qualquer maneira
+              if (!meuTimeValido) navigate('/dashboard');
+              else navigate('/championship'); 
+            }} 
+            className={`mt-4 sm:mt-6 px-4 py-2 sm:px-8 sm:py-3 rounded-xl text-white font-black text-xs sm:text-base uppercase tracking-widest transition-colors shadow-lg 
+              ${!meuTimeValido ? 'bg-fifa-red hover:bg-opacity-80 shadow-fifa-red/50' : 'bg-fifa-blue hover:bg-opacity-80 shadow-fifa-blue/50'}`}
+          >
+            {!meuTimeValido ? '⚠️ Ajustar Escalação (Pendências)' : 'Sair do Estádio (Ver Tabela)'}
           </button>
         )}
       </div>
