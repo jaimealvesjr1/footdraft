@@ -1,12 +1,11 @@
-// src/pages/Draft.tsx
 import { useState, useEffect } from 'react';
 import { collection, getDocs, doc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '../services/firebase';
 import { type Jogador, type GameState, type Clube } from '../types';
 
-const LIMITES = { GOL: 3, DEF: 6, MEI: 6, ATA: 6 };
+const LIMITES = { GOL: 2, DEF: 7, MEI: 7, ATA: 5 };
 const ESCOLHAS_POR_RODADA = 3;
-const TEMPO_LIMITE_MS = 3 * 60 * 1000;
+const TEMPO_LIMITE_MS = 2 * 60 * 1000;
 
 export default function Draft() {
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -27,10 +26,6 @@ export default function Draft() {
 
   const [carregando, setCarregando] = useState(true);
 
-  // ==========================================
-  // FUNÇÕES AUXILIARES E DE REGRAS TÁTICAS
-  // (Declaradas no topo para evitar erros de escopo/TypeScript)
-  // ==========================================
   const getPosicoesNecessarias = () => {
     const todosEscolhidos = [...meuElenco, ...escolhasDaRodada];
     const contagem = { GOL: 0, DEF: 0, MEI: 0, ATA: 0 };

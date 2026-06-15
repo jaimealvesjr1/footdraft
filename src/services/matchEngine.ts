@@ -6,6 +6,7 @@ export type EventoPartida = {
   time: 'CASA' | 'FORA';
   texto: string;
   jogadorId?: string;
+  jogadorNome?: string;
 };
 
 interface SimConfig {
@@ -234,8 +235,7 @@ export function simularPartidaV2(teamA: (Jogador | null)[], teamB: (Jogador | nu
           const forcaRelativa = isAtaqueA ? (forcaA / forcaB) : (forcaB / forcaA);
           
           eventos.push({
-            minuto, tipo: 'GOL', time: isAtaqueA ? 'CASA' : 'FORA', jogadorId: autor.id,
-            // Passamos a flag `isTentativaGolDeHonra` para a função de texto gerar a narração correta!
+            minuto, tipo: 'GOL', time: isAtaqueA ? 'CASA' : 'FORA', jogadorId: autor.id, jogadorNome: autor.nome,
             texto: getTextoGol(autor.nome, forcaRelativa, isAtaqueA ? !statsB.temGoleiro : !statsA.temGoleiro, isTentativaGolDeHonra)
           });
           
@@ -255,17 +255,17 @@ export function simularPartidaV2(teamA: (Jogador | null)[], teamB: (Jogador | nu
         
         if (Math.random() < (cansaco - 1) * 0.15) {
           vitima.statusFisico = { cansaco, suspenso: false, lesionado: true };
-          eventos.push({ minuto, tipo: 'LESAO', time: isCasa ? 'CASA' : 'FORA', jogadorId: vitima.id, texto: getTextoLesao(vitima.nome) });
+          eventos.push({ minuto, tipo: 'LESAO', time: isCasa ? 'CASA' : 'FORA', jogadorId: vitima.id, jogadorNome: vitima.nome, texto: getTextoLesao(vitima.nome) });
         } else {
           if (amarelos.has(vitima.id)) {
             expulsos.add(vitima.id);
-            eventos.push({ minuto, tipo: 'CARTAO_VERMELHO', time: isCasa ? 'CASA' : 'FORA', jogadorId: vitima.id, texto: getTextoCartaoVermelho(vitima.nome, true) });
+            eventos.push({ minuto, tipo: 'CARTAO_VERMELHO', time: isCasa ? 'CASA' : 'FORA', jogadorId: vitima.id, jogadorNome: vitima.nome, texto: getTextoCartaoVermelho(vitima.nome, true) });
           } else if (Math.random() < 0.10) { 
             expulsos.add(vitima.id);
-            eventos.push({ minuto, tipo: 'CARTAO_VERMELHO', time: isCasa ? 'CASA' : 'FORA', jogadorId: vitima.id, texto: getTextoCartaoVermelho(vitima.nome, false) });
+            eventos.push({ minuto, tipo: 'CARTAO_VERMELHO', time: isCasa ? 'CASA' : 'FORA', jogadorId: vitima.id, jogadorNome: vitima.nome, texto: getTextoCartaoVermelho(vitima.nome, false) });
           } else {
             amarelos.add(vitima.id);
-            eventos.push({ minuto, tipo: 'CARTAO_AMARELO', time: isCasa ? 'CASA' : 'FORA', jogadorId: vitima.id, texto: getTextoCartaoAmarelo(vitima.nome) });
+            eventos.push({ minuto, tipo: 'CARTAO_AMARELO', time: isCasa ? 'CASA' : 'FORA', jogadorId: vitima.id, jogadorNome: vitima.nome, texto: getTextoCartaoAmarelo(vitima.nome) });
           }
         }
       }

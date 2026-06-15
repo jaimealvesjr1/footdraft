@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { db, auth } from "../services/firebase";
-import { doc, onSnapshot, updateDoc, increment, arrayUnion } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, increment, arrayUnion, getDoc } from "firebase/firestore";
 import { type GameState } from "../types";
 import toast from 'react-hot-toast'; 
 
@@ -69,17 +69,25 @@ export default function Championship() {
       return 0; // Rebaixados não ganham XP
     };
 
-    const artilheirosMap: Record<string, { nome: string; gols: number }> = {};
+    const artilheirosMap: Record<string, { nome: string; gols: number; clube: string }> = {};
     
     gameState.schedule?.forEach(rodada => {
       rodada.jogos?.forEach(jogo => {
         jogo.relatorio?.forEach((evento: any) => {
           if (evento.tipo === 'GOL' && evento.jogadorId) {
             if (!artilheirosMap[evento.jogadorId]) {
-              let nomeAutor = "Jogador";
-              if (evento.texto.includes("balança a rede!")) nomeAutor = evento.texto.split("! ")[1]?.replace(" balança a rede!", "");
-              else if (evento.texto.includes("Bela finalização de ")) nomeAutor = evento.texto.split("de ")[1]?.replace("!", "");
-              artilheirosMap[evento.jogadorId] = { nome: nomeAutor, gols: 0 };
+              let nomeAutor = evento.jogadorNome;
+              
+              if (!nomeAutor) {
+                const regexNomes = /(?:GOLAÇO!|GOL!|ROLO COMPRESSOR!|VIROU PASSEIO!|ZEBRA!|MILAGRE!|INACREDITÁVEL!|CAIXA!|encontra|de|,\s)\s*([A-ZÀ-ÿ][a-zA-ZÀ-ÿ\s]*?)\s+(acerta|sobe|confere|apenas|ganha|chuta|guarda|tabela|aproveita|acha|que|cala)/;
+                const match = evento.texto.match(regexNomes);
+                nomeAutor = (match && match[1]) ? match[1].trim() : "Artilheiro Desconhecido";
+              }
+              
+              const timeId = evento.time === 'CASA' ? jogo.homeId : jogo.awayId;
+              const nomeClube = getNomeClube(timeId);
+              
+              artilheirosMap[evento.jogadorId] = { nome: nomeAutor, gols: 0, clube: nomeClube };
             }
             artilheirosMap[evento.jogadorId].gols += 1;
           }
@@ -95,7 +103,7 @@ export default function Championship() {
           
           <div className="text-center mb-12 mt-8">
             <h1 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-white drop-shadow-xl">Fim de <span className="text-fifa-green">Temporada</span></h1>
-            <p className="text-fifa-blue font-bold uppercase tracking-widest mt-2 animate-pulse">A Glória Eterna do Campeonato</p>
+            <p className="text-fifa-blue font-bold uppercase tracking-widest mt-2 animate-pulse">A Glória Eterna</p>
           </div>
 
           {campeao && (
@@ -149,9 +157,12 @@ export default function Championship() {
                     <li key={idx} className="flex justify-between items-center bg-neutral-950 p-3 rounded-lg border border-neutral-800">
                       <div className="flex items-center gap-3">
                         <span className={`font-black text-lg ${idx === 0 ? 'text-yellow-500' : idx === 1 ? 'text-neutral-400' : idx === 2 ? 'text-orange-500' : 'text-neutral-600'}`}>{idx + 1}º</span>
-                        <span className="font-bold text-white uppercase tracking-tighter text-sm md:text-base">{artilheiro.nome}</span>
+                        <div className="flex flex-col leading-tight">
+                          <span className="font-bold text-white uppercase tracking-tighter text-sm md:text-base truncate max-w-37.5 sm:max-w-50">{artilheiro.nome}</span>
+                          <span className="text-[10px] text-neutral-500 uppercase font-bold tracking-widest truncate max-w-37.5 sm:max-w-50">{artilheiro.clube}</span>
+                        </div>
                       </div>
-                      <div className="bg-neutral-900 px-3 py-1 rounded border border-neutral-700">
+                      <div className="bg-neutral-900 px-3 py-1 rounded border border-neutral-700 shrink-0 text-center">
                         <span className="font-black text-fifa-green">{artilheiro.gols}</span> <span className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest">Gols</span>
                       </div>
                     </li>
@@ -218,8 +229,21 @@ export default function Championship() {
                 try {
                   const userIndex = standings.findIndex(t => t.id === currentUserUid);
                   const xpGanho = userIndex !== -1 ? calcularPontosTemporada(userIndex) : 0;
+                  
                   if (xpGanho > 0) {
-                    await updateDoc(doc(db, "usuarios", currentUserUid), { xpTotal: increment(xpGanho) });
+                    const userRef = doc(db, "usuarios", currentUserUid);
+                    const userSnap = await getDoc(userRef);
+                    
+                    if (userSnap.data()?.xpResgatadoTemporada === gameState.currentRound) {
+                      toast.error("Você já resgatou sua recompensa desta temporada!");
+                      navigate('/dashboard');
+                      return;
+                    }
+
+                    await updateDoc(userRef, { 
+                      xpTotal: increment(xpGanho),
+                      xpResgatadoTemporada: gameState.currentRound 
+                    });
                     toast.success(`Você resgatou ${xpGanho} XP!`);
                   }
                   navigate('/dashboard');
@@ -261,7 +285,7 @@ export default function Championship() {
     <div className="min-h-screen bg-neutral-950 text-neutral-200 p-4 md:p-8 flex flex-col font-sans">
       <div className="max-w-7xl mx-auto w-full flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-2xl mb-6 sm:mb-8 gap-4 sm:gap-0">
         <div className="text-center md:text-left">
-          <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">Campeonato Brasileiro</h1>
+          <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">{(gameState as any).nomeCampeonato || "Campeonato Brasileiro"}</h1>
           <p className="text-cyan-400 font-bold tracking-widest uppercase text-xs sm:text-sm mt-1">
             RODADA {rodadaVerdadeira} DE {totalRounds}
           </p>

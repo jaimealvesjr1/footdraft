@@ -42,6 +42,7 @@ export default function Admin() {
   const [clubeEmEdicao, setClubeEmEdicao] = useState<Clube | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [tamanhoCampeonato, setTamanhoCampeonato] = useState<number>(20);
+  const [nomeCampeonato, setNomeCampeonato] = useState<string>('');
   
   const [jogadorDesistenteUid, setJogadorDesistenteUid] = useState<string>('');
 
@@ -235,7 +236,8 @@ Siga ESTRITAMENTE esta estrutura:
       await updateDoc(doc(db, "game", "state"), {
         teams: times, standings: standings, schedule: scheduleCompleto,
         currentRound: 1, phase: 'FIRST_HALF',
-        totalTeams: TOTAL_TIMES 
+        totalTeams: TOTAL_TIMES,
+        nomeCampeonato: nomeCampeonato || `Temporada ${new Date().getFullYear()}`
       });
 
       toast.success(`Campeonato Gerado com Sucesso! (${(TOTAL_TIMES - 1) * 2} rodadas)`);
@@ -383,18 +385,38 @@ Siga ESTRITAMENTE esta estrutura:
       } else if (rodadaVerdadeira === endSeason) {
         proximaFase = 'FINISHED'; 
         mensagemAlert = "CAMPEONATO ENCERRADO! Histórico da temporada foi salvo.";
+
+        // CÁLCULO DEFINITIVO DA CHUTEIRA DE OURO NO BACKEND
+        const artilheirosMap: Record<string, { gols: number; timeId: string }> = {};
+        updatedSchedule.forEach(rodada => {
+          rodada.jogos?.forEach((jogo: any) => {
+            jogo.relatorio?.forEach((evento: any) => {
+              if (evento.tipo === 'GOL' && evento.jogadorId) {
+                if (!artilheirosMap[evento.jogadorId]) {
+                  const timeId = evento.time === 'CASA' ? jogo.homeId : jogo.awayId;
+                  artilheirosMap[evento.jogadorId] = { gols: 0, timeId };
+                }
+                artilheirosMap[evento.jogadorId].gols += 1;
+              }
+            });
+          });
+        });
+
+        const topScorers = Object.values(artilheirosMap).sort((a, b) => b.gols - a.gols);
+        const topScorerTimeId = topScorers.length > 0 ? topScorers[0].timeId : null;
         
         const dataAtual = new Date().toLocaleDateString('pt-BR');
         const promessasHistorico = novosStandings.map((timeDaTabela, index) => {
              const isHumano = (gameState.teams || []).find((t:any) => t.id === timeDaTabela.id)?.isUser;
              if (isHumano) {
                  const historicoData = {
-                     temporada: dataAtual,
+                     temporada: (gameState as any).nomeCampeonato || `Série A - ${dataAtual}`,
                      posicao: index + 1,
                      pontos: timeDaTabela.pts,
                      vitorias: timeDaTabela.v,
                      saldo: timeDaTabela.sg,
-                     campeao: index === 0
+                     campeao: index === 0,
+                     teveArtilheiro: timeDaTabela.id === topScorerTimeId // MARCA SE O TIME TEVE O ARTILHEIRO
                  };
                  return updateDoc(doc(db, "usuarios", timeDaTabela.id), {
                      historicoCampanhas: arrayUnion(historicoData),
@@ -677,7 +699,7 @@ Siga ESTRITAMENTE esta estrutura:
         {/* CABEÇALHO */}
         <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl gap-4 sm:gap-6">
           <div className="flex-1 w-full text-center md:text-left">
-            <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">Painel do <span className="text-fifa-blue">Game Master</span></h1>
+            <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">Painel da <span className="text-fifa-blue">CBF</span></h1>
             <p className="text-xs sm:text-sm text-neutral-400 mt-2 font-bold tracking-widest uppercase">
               Fase Atual: <span className="text-fifa-green">{gameState?.phase || '...'}</span> <br className="md:hidden" /> <span className="hidden md:inline">|</span> Rodada: <span className="text-fifa-blue">{gameState?.currentRound || 0}</span>/{(gameState as any)?.totalTeams ? ((gameState as any).totalTeams - 1) * 2 : 38}
             </p>
@@ -717,6 +739,7 @@ Siga ESTRITAMENTE esta estrutura:
 
           <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-fifa-blue flex flex-col gap-2 sm:gap-3 shadow-lg">
             <h3 className="text-[10px] sm:text-xs text-fifa-blue font-black uppercase tracking-widest border-b border-neutral-800 pb-2">2. Campeonato</h3>
+            <input type="text" placeholder="Nome da Temporada" value={nomeCampeonato} onChange={(e) => setNomeCampeonato(e.target.value)} className="w-full bg-neutral-950 text-white p-2 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-fifa-blue text-[10px] sm:text-xs" />
             <div className="flex gap-2 w-full">
               <select value={tamanhoCampeonato} onChange={(e) => setTamanhoCampeonato(Number(e.target.value))} className="bg-neutral-950 text-white p-2 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-fifa-blue text-[10px] sm:text-xs">
                 <option value={10}>10 Times</option>

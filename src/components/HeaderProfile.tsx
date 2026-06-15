@@ -71,6 +71,7 @@ export default function HeaderProfile() {
     };
 
     const titulos = historico.filter((h: any) => h.campeao).length;
+    const artilharias = historico.filter((h: any) => h.teveArtilheiro).length;
 
     return (
         <>
@@ -116,6 +117,10 @@ export default function HeaderProfile() {
                                     <p className="text-[8px] uppercase tracking-widest text-neutral-400 font-bold mt-1">Troféus</p>
                                 </div>
                                 <div>
+                                    <p className="text-3xl font-black text-orange-500">{artilharias}</p>
+                                    <p className="text-[8px] uppercase tracking-widest text-neutral-400 font-bold mt-1">Artilharias</p>
+                                </div>
+                                <div>
                                     <p className="text-3xl font-black text-white">{historico.length}</p>
                                     <p className="text-[8px] uppercase tracking-widest text-neutral-400 font-bold mt-1">Temporadas</p>
                                 </div>
@@ -129,7 +134,10 @@ export default function HeaderProfile() {
                                     <div key={idx} className={`p-4 rounded-xl border flex flex-col gap-3 ${campanha.campeao ? 'bg-yellow-900/10 border-yellow-500/30' : 'bg-neutral-950 border-neutral-800'}`}>
                                         <div className="flex justify-between items-center border-b border-neutral-800/50 pb-2">
                                             <span className="text-[10px] text-neutral-400 uppercase font-bold tracking-widest">{campanha.temporada}</span>
-                                            {campanha.campeao && <span className="text-[10px] bg-yellow-500 text-neutral-900 font-black px-2 py-0.5 rounded uppercase tracking-widest">🏆 CAMPEÃO</span>}
+                                            <div className="flex gap-1.5">
+                                                {campanha.campeao && <span className="text-[10px] bg-yellow-500 text-neutral-900 font-black px-2 py-0.5 rounded uppercase tracking-widest">🏆 CAMPEÃO</span>}
+                                                {campanha.teveArtilheiro && <span className="text-[10px] bg-orange-500 text-neutral-900 font-black px-2 py-0.5 rounded uppercase tracking-widest" title="O Artilheiro da liga foi do seu time!">👞 ARTILHEIRO</span>}
+                                            </div>
                                         </div>
                                         <div className="flex justify-between items-end">
                                             <div>
