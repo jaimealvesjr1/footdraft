@@ -387,14 +387,18 @@ Siga ESTRITAMENTE esta estrutura:
       if (rodadaVerdadeira === midSeason) {
         mensagemAlert = "FIM DO 1º TURNO! Após a TV, clique no botão 'Janela de Transf.'";
       } else if (rodadaVerdadeira === endSeason) {
-        mensagemAlert = "ÚLTIMA RODADA SIMULADA! Após a TV, o histórico estará salvo.";
-
+        proximaFase = 'FINISHED'; 
+        mensagemAlert = "CAMPEONATO ENCERRADO! Histórico da temporada foi salvo.";
+        
         const dataAtual = new Date().toLocaleDateString('pt-BR');
+        const nomeCamp = (gameState as any).nomeCampeonato || "Campeonato Brasileiro";
+
         const promessasHistorico = novosStandings.map((timeDaTabela, index) => {
              const isHumano = (gameState.teams || []).find((t:any) => t.id === timeDaTabela.id)?.isUser;
              if (isHumano) {
                  const historicoData = {
                      temporada: dataAtual,
+                     nomeCampeonato: nomeCamp,
                      posicao: index + 1,
                      pontos: timeDaTabela.pts,
                      vitorias: timeDaTabela.v,

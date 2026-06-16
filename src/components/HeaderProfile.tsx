@@ -133,8 +133,13 @@ export default function HeaderProfile() {
                                 historico.map((campanha, idx) => (
                                     <div key={idx} className={`p-4 rounded-xl border flex flex-col gap-3 ${campanha.campeao ? 'bg-yellow-900/10 border-yellow-500/30' : 'bg-neutral-950 border-neutral-800'}`}>
                                         <div className="flex justify-between items-center border-b border-neutral-800/50 pb-2">
-                                            <span className="text-[10px] text-neutral-400 uppercase font-bold tracking-widest">{campanha.temporada}</span>
-                                            <div className="flex gap-1.5">
+                                            
+                                            {/* 🔥 O NOME DO CAMPEONATO APARECE AQUI 🔥 */}
+                                            <span className="text-[10px] text-neutral-400 uppercase font-bold tracking-widest truncate max-w-40">
+                                                {campanha.nomeCampeonato || campanha.temporada}
+                                            </span>
+
+                                            <div className="flex gap-1.5 shrink-0">
                                                 {campanha.campeao && <span className="text-[10px] bg-yellow-500 text-neutral-900 font-black px-2 py-0.5 rounded uppercase tracking-widest">🏆 CAMPEÃO</span>}
                                                 {campanha.teveArtilheiro && <span className="text-[10px] bg-orange-500 text-neutral-900 font-black px-2 py-0.5 rounded uppercase tracking-widest" title="O Artilheiro da liga foi do seu time!">👞 ARTILHEIRO</span>}
                                             </div>
