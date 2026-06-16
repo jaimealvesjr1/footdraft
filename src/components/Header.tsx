@@ -108,14 +108,18 @@ export default function Header() {
   const titulos = historico.filter((h: any) => h.campeao).length;
 
   const RenderLogo = () => (
-    <span className="text-2xl font-black text-white uppercase tracking-tighter">
-      Foot<span className="text-fifa-green">Draft</span><span className="text-fifa-blue">26</span>
-    </span>
+    <div className="flex items-center gap-2">
+      <img 
+        src="/header.jpg" 
+        alt="FootDraft Logo" 
+        className="h-15 w-auto object-contain rounded-md" // Ajuste o h-10 (altura) conforme preferir (h-8, h-12)
+      />
+    </div>
   );
 
   if (!userUid) {
     return (
-      <header className="sticky top-0 z-40 bg-neutral-950/90 backdrop-blur-xl border-b border-neutral-800 shadow-[0_4px_30px_rgba(0,0,0,0.5)] h-16 flex items-center justify-center font-fifa">
+      <header className="sticky top-0 z-40 bg-neutral-950/90 backdrop-blur-xl border-b border-neutral-800 shadow-[0_4px_30px_rgba(0,0,0,0.5)] h-23 flex items-center justify-center font-fifa">
         <RenderLogo />
       </header>
     );
@@ -129,8 +133,8 @@ export default function Header() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
               <RenderLogo />
-              <span className="hidden md:inline-block text-[10px] bg-neutral-900 border border-fifa-gray-dark text-fifa-gray-light px-2 py-0.5 rounded font-bold uppercase tracking-wider">
-                BETA
+              <span className="hidden md:inline-block text-[10px] bg-neutral-900 border border-fifa-gray-dark text-fifa-gray-light px-2 py-0.5 rounded font-bold tracking-wider">
+                v1.0 B2X
               </span>
             </div>
           </div>

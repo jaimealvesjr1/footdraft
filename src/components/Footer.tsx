@@ -5,10 +5,11 @@ export default function Footer() {
         
         {/* Lado Esquerdo: Logo Typográfico FIFA 26 */}
         <div className="flex items-center hover:cursor-pointer group gap-4">
-          <div className="flex flex-col leading-none font-black tracking-tighter select-none">
-            <span className="text-xl text-white">FI<span className="text-fifa-blue">FA</span></span>
-            <span className="text-2xl text-fifa-green -mt-1">2<span className="text-fifa-red">6</span></span>
-          </div>
+          <img 
+            src="/logo.jpg" 
+            alt="FootDraft Logo Oficial" 
+            className="h-12 w-auto object-contain rounded-md grayscale group-hover:grayscale-0 transition-all duration-500" 
+          />
           <div className="w-px h-8 bg-neutral-800 hidden md:block"></div>
           <span className="text-sm font-black text-fifa-gray-dark uppercase tracking-tighter opacity-50 group-hover:opacity-100 transition-opacity duration-300">
             FootDraft
@@ -19,6 +20,9 @@ export default function Footer() {
         <div className="flex flex-col items-center md:items-end text-center md:text-right">
           <p className="text-[11px] text-fifa-gray-light font-bold uppercase tracking-widest">
             &copy; {new Date().getFullYear()} FootDraft. Todos os direitos reservados.
+          </p>
+          <p className="text-[11px] text-gray-500 font-bold tracking-widest">
+            Created by MrJames
           </p>
         </div>
       </div>
