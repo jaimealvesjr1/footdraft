@@ -9,15 +9,26 @@ export type EventoPartida = {
   jogadorNome?: string;
 };
 
+export type Mentalidade = 'OFENSIVA' | 'DEFENSIVA' | 'EQUILIBRADA';
+
+export const getMentalidade = (formacao?: string): Mentalidade => {
+  if (!formacao) return 'EQUILIBRADA';
+  const mapa: Record<string, Mentalidade> = {
+    "4-3-3": 'OFENSIVA', "3-4-3": 'OFENSIVA',
+    "4-4-2": 'EQUILIBRADA', "3-5-2": 'EQUILIBRADA',
+    "4-5-1": 'DEFENSIVA', "5-4-1": 'DEFENSIVA'
+  };
+  return mapa[formacao] || 'EQUILIBRADA';
+};
+
 interface SimConfig {
   isUserA: boolean;
   isUserB: boolean;
   rodada: number;
+  mentalidadeA?: Mentalidade; // NOVO
+  mentalidadeB?: Mentalidade; // NOVO
 }
 
-// ========================
-// 1. INTELIGÊNCIA TÁTICA DOS BOTS
-// ========================
 export const escalarBot = (elenco: Jogador[]): (Jogador | null)[] => {
   const time = new Array(11).fill(null);
   if (!elenco || elenco.length === 0) return time;
@@ -41,14 +52,9 @@ export const escalarBot = (elenco: Jogador[]): (Jogador | null)[] => {
   return time;
 };
 
-// ========================
-// 2. GERADORES DE NARRATIVA
-// ========================
-// -> NOVO PARÂMETRO ADICIONADO: isGolDeHonra
 const getTextoGol = (nome: string, forcaRelativa: number, semGoleiro: boolean, isGolDeHonra: boolean) => {
   if (semGoleiro) return `GOL BIZARRO! Com a meta adversária vazia pela ausência de um goleiro, ${nome} chuta do meio-campo e marca!`;
   
-  // Se a flag de gol de honra for verdadeira, exibe a mensagem específica
   if (isGolDeHonra) return `GOL DE HONRA! No finalzinho do jogo, ${nome} desconta e diminui o vexame para a sua equipe!`;
   
   if (forcaRelativa > 1.5) return `MASSACRE! A defesa não consegue respirar e ${nome} guarda mais um com tranquilidade!`;
@@ -77,9 +83,6 @@ const getTextoLesao = (nome: string) => {
   return padroes[Math.floor(Math.random() * padroes.length)];
 };
 
-// ========================
-// 3. MOTOR MATEMÁTICO: POSIÇÃO E FORÇA
-// ========================
 const getPosicaoEscalada = (index: number): string => {
   if (index === 10) return 'GOL';
   if (index >= 6) return 'DEF';
@@ -138,7 +141,6 @@ const sortearJogador = (team: (Jogador | null)[], expulsos: Set<string>, acao: '
     const isDefesa = posUpper === 'DEF';
     const isMeio = posUpper === 'MEI';
     
-    // REGRA DE OURO: Goleiro NUNCA participa do sorteio para fazer gol.
     if (acao === 'ATAQUE') {
       if (isGoleiro) return 0; 
       return isAtacante ? 5 : isMeio ? 3 : 1;
@@ -155,9 +157,6 @@ const sortearJogador = (team: (Jogador | null)[], expulsos: Set<string>, acao: '
   return aptos.find((_, i) => (rand -= pesos[i]) <= 0) || aptos[0];
 };
 
-// ========================
-// 4. O SIMULADOR DE RODADA
-// ========================
 export function simularPartidaV2(teamA: (Jogador | null)[], teamB: (Jogador | null)[], config: SimConfig = { isUserA: true, isUserB: true, rodada: 1 }) {
   const eventos: EventoPartida[] = [];
   const pressao: { minuto: number, valor: number }[] = []; 
@@ -171,14 +170,48 @@ export function simularPartidaV2(teamA: (Jogador | null)[], teamB: (Jogador | nu
   const statsB = calcularForcaEquipe(teamB, expulsos, config.isUserB, config.rodada);
 
   const isPvP = config.isUserA && config.isUserB;
-  const forcaA = statsA.forca * (isPvP ? 1.0 : (0.85 + Math.random() * 0.30));
-  const forcaB = statsB.forca * (isPvP ? 1.0 : (0.85 + Math.random() * 0.30));
+  let forcaA = statsA.forca * (isPvP ? 1.0 : (0.85 + Math.random() * 0.30));
+  let forcaB = statsB.forca * (isPvP ? 1.0 : (0.85 + Math.random() * 0.30));
   
-  const probABase = forcaA / (forcaA + forcaB);
+  const mentA = config.mentalidadeA || 'EQUILIBRADA';
+  const mentB = config.mentalidadeB || 'EQUILIBRADA';
+  let chanceGolMult = 1.0;
 
-  const CHANCE_GOL = (!statsA.temGoleiro || !statsB.temGoleiro) ? 0.15 : 0.055; 
+  // 1. Modificadores Base de Mentalidade
+  if (mentA === 'OFENSIVA') { forcaA *= 1.15; forcaB *= 1.10; } 
+  else if (mentA === 'DEFENSIVA') { forcaA *= 0.85; forcaB *= 0.80; } 
+
+  if (mentB === 'OFENSIVA') { forcaB *= 1.15; forcaA *= 1.10; }
+  else if (mentB === 'DEFENSIVA') { forcaB *= 0.85; forcaA *= 0.80; } 
+
+  // 2. Interações Davi vs Golias (Massacre vs Ferrolho)
+  const ratioForca = forcaA / (forcaB || 1); // Proteção contra divisão por 0
+  
+  if (ratioForca > 1.25) { 
+    if (mentA === 'OFENSIVA' && mentB !== 'DEFENSIVA') forcaA *= 1.15; 
+    else if (mentA === 'OFENSIVA' && mentB === 'DEFENSIVA') {
+      forcaA *= 0.90; forcaB *= 1.10; 
+    }
+  } else if (ratioForca < 0.8) { 
+    if (mentB === 'OFENSIVA' && mentA !== 'DEFENSIVA') forcaB *= 1.15; 
+    else if (mentB === 'OFENSIVA' && mentA === 'DEFENSIVA') {
+      forcaB *= 0.90; forcaA *= 1.10;
+    }
+  }
+
+  // 3. Ritmo do Jogo 
+  if (mentA === 'OFENSIVA' && mentB === 'OFENSIVA') chanceGolMult = 1.25; 
+  if (mentA === 'DEFENSIVA' && mentB === 'DEFENSIVA') chanceGolMult = 0.70;
+
+  // ==========================================
+
+  const probABase = forcaA / (forcaA + forcaB);
+  
+  // Aplica o multiplicador de ritmo de jogo na CHANCE_GOL global
+  const CHANCE_GOL = ((!statsA.temGoleiro || !statsB.temGoleiro) ? 0.15 : 0.055) * chanceGolMult; 
   const CHANCE_ACIDENTE = 0.035; 
 
+  // Início do Loop
   for (let minuto = 2; minuto <= 90; minuto += 2) {
     const dado = Math.random();
 

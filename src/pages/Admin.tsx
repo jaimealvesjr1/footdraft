@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { type Clube, type GamePhase, type GameState, type Posicao, type Jogador } from '../types'; 
 import { doc, setDoc, deleteDoc, onSnapshot, getDocs, collection, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '../services/firebase'; 
-import { simularPartidaV2, escalarBot } from '../services/matchEngine';
+import { simularPartidaV2, escalarBot, getMentalidade } from '../services/matchEngine';
 import toast from 'react-hot-toast';
 
 type Formacao = "4-3-3" | "4-4-2" | "3-5-2" | "4-5-1";
@@ -287,11 +287,14 @@ Siga ESTRITAMENTE esta estrutura:
         const homeDoc = await getDoc(doc(db, isHomeUser ? "usuarios" : "clubes", jogo.homeId));
         const awayDoc = await getDoc(doc(db, isAwayUser ? "usuarios" : "clubes", jogo.awayId));
         
-        const homeElenco = homeDoc.data()?.elenco as Jogador[] || [];
-        const awayElenco = awayDoc.data()?.elenco as Jogador[] || [];
+        const homeData = homeDoc.data();
+        const awayData = awayDoc.data();
 
-        const homeTitularesIds = homeDoc.data()?.titularesIds || [];
-        const awayTitularesIds = awayDoc.data()?.titularesIds || [];
+        const homeElenco = homeData?.elenco as Jogador[] || [];
+        const awayElenco = awayData?.elenco as Jogador[] || [];
+
+        const homeTitularesIds = homeData?.titularesIds || [];
+        const awayTitularesIds = awayData?.titularesIds || [];
 
         const homeTitulares = isHomeUser ? validarTitularesHumanos(homeTitularesIds, homeElenco, nomeHome) : escalarBot(homeElenco);
         const awayTitulares = isAwayUser ? validarTitularesHumanos(awayTitularesIds, awayElenco, nomeAway) : escalarBot(awayElenco);
@@ -299,7 +302,9 @@ Siga ESTRITAMENTE esta estrutura:
         const resultado = simularPartidaV2(homeTitulares, awayTitulares, {
           isUserA: isHomeUser,
           isUserB: isAwayUser,
-          rodada: gameState.currentRound
+          rodada: gameState.currentRound,
+          mentalidadeA: getMentalidade(homeData?.formacao),
+          mentalidadeB: getMentalidade(awayData?.formacao)
         });
         
         jogo.homeScore = resultado.golsCasa;
@@ -475,7 +480,7 @@ Siga ESTRITAMENTE esta estrutura:
             elenco = novos.map(j => ({ ...j, statusFisico: { cansaco: 1, lesionado: false, suspenso: false, amarelos: 0 } }));
         }
 
-        const formacoes = ["4-3-3", "4-4-2", "3-5-2", "4-5-1"] as Formacao[];
+        const formacoes = ["4-3-3", "3-4-3", "4-4-2", "3-5-2", "4-5-1", "5-4-1"] as Formacao[];
         const formacaoEscolhida = formacoes[Math.floor(Math.random() * formacoes.length)];
         const regras = REGRAS_FORMACAO[formacaoEscolhida];
 

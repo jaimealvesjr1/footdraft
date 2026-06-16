@@ -6,12 +6,27 @@ import { onAuthStateChanged } from "firebase/auth";
 import type { Jogador } from "../types";
 import toast from 'react-hot-toast';
 
-type Formacao = "4-3-3" | "4-4-2" | "3-5-2" | "4-5-1";
+type Formacao = "4-3-3" | "4-4-2" | "3-5-2" | "4-5-1" | "5-4-1" | "3-4-3";
+
+type Mentalidade = 'OFENSIVA' | 'DEFENSIVA' | 'EQUILIBRADA';
+
+// Mapeamento Formação -> Mentalidade
+export const MENTALIDADE_TATICA: Record<Formacao, Mentalidade> = {
+  "4-3-3": 'OFENSIVA',
+  "3-4-3": 'OFENSIVA',
+  "4-4-2": 'EQUILIBRADA',
+  "3-5-2": 'EQUILIBRADA',
+  "4-5-1": 'DEFENSIVA',
+  "5-4-1": 'DEFENSIVA',
+};
+
 const REGRAS_FORMACAO: Record<Formacao, { DEF: number; MEI: number; ATA: number }> = {
-  "4-3-3": { DEF: 4, MEI: 3, ATA: 3 },
-  "4-4-2": { DEF: 4, MEI: 4, ATA: 2 },
-  "3-5-2": { DEF: 3, MEI: 5, ATA: 2 },
-  "4-5-1": { DEF: 4, MEI: 5, ATA: 1 },
+  "4-3-3": { DEF: 4, MEI: 3, ATA: 3 }, // Ofensiva
+  "3-4-3": { DEF: 3, MEI: 4, ATA: 3 }, // Ofensiva
+  "4-4-2": { DEF: 4, MEI: 4, ATA: 2 }, // Equilibrada
+  "3-5-2": { DEF: 3, MEI: 5, ATA: 2 }, // Equilibrada
+  "4-5-1": { DEF: 4, MEI: 5, ATA: 1 }, // Defensiva
+  "5-4-1": { DEF: 5, MEI: 4, ATA: 1 }, // Defensiva
 };
 
 const POSICOES_PERMITIDAS: Record<string, string[]> = {
@@ -339,11 +354,23 @@ export default function Dashboard() {
           
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mt-2 md:mt-0 w-full md:w-auto">
             <div className="flex gap-2 w-full sm:w-auto">
-              <select value={formacao} onChange={(e) => mudarFormacao(e.target.value as Formacao)} className="flex-1 bg-neutral-950 text-white p-3 sm:p-4 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-fifa-blue text-xs sm:text-sm">
-                <option value="4-3-3">Tática 4-3-3</option>
-                <option value="4-4-2">Tática 4-4-2</option>
-                <option value="3-5-2">Tática 3-5-2</option>
-                <option value="4-5-1">Tática 4-5-1</option>
+              <select 
+                value={formacao} 
+                onChange={(e) => mudarFormacao(e.target.value as Formacao)} 
+                className="bg-neutral-950 text-white p-3 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-yellow-500"
+              >
+                <optgroup label="Ofensivas ⚔️ (+xG, Defesa Exposta)">
+                  <option value="4-3-3">Tática 4-3-3</option>
+                  <option value="3-4-3">Tática 3-4-3</option>
+                </optgroup>
+                <optgroup label="Equilibradas ⚖️ (Foco no OVR)">
+                  <option value="4-4-2">Tática 4-4-2</option>
+                  <option value="3-5-2">Tática 3-5-2</option>
+                </optgroup>
+                <optgroup label="Defensivas 🛡️ (-xG, Proteção Total)">
+                  <option value="4-5-1">Tática 4-5-1</option>
+                  <option value="5-4-1">Tática 5-4-1</option>
+                </optgroup>
               </select>
               <button 
                 onClick={salvarTaticaComoPadrao} 

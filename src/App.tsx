@@ -26,7 +26,7 @@ const AdminProtegido = () => {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (senha === "2525") {
+    if (senha === "252525") {
       setAutenticado(true);
     } else {
       setErro("Senha incorreta. Acesso negado.");
