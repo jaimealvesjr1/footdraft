@@ -37,6 +37,8 @@ export default function Championship() {
   const totalTeams = (gameState as any)?.totalTeams || 20;
   const totalRounds = (totalTeams - 1) * 2;
   const midSeason = totalTeams - 1;
+  
+  const nomeCampeonato = (gameState as any)?.nomeCampeonato || "Campeonato Brasileiro";
 
   // CÁLCULO DINÂMICO DE VAGAS NA TABELA DE CLASSIFICAÇÃO
   const tLibertadores = Math.max(1, Math.floor(totalTeams * 0.20)); // Top 20%
@@ -102,8 +104,8 @@ export default function Championship() {
         <div className="max-w-7xl mx-auto p-4 md:p-8">
           
           <div className="text-center mb-12 mt-8">
-            <h1 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-white drop-shadow-xl">Fim de <span className="text-fifa-green">Temporada</span></h1>
-            <p className="text-fifa-blue font-bold uppercase tracking-widest mt-2 animate-pulse">A Glória Eterna</p>
+            <h1 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-white drop-shadow-xl">Fim de <span className="text-fifa-green">{nomeCampeonato}</span></h1>
+            <p className="text-fifa-blue font-bold uppercase tracking-widest mt-2 animate-pulse">Até a próxima temporada!</p>
           </div>
 
           {campeao && (
@@ -262,9 +264,6 @@ export default function Championship() {
     );
   }
 
-  // ==========================================
-  // JOGO NORMAL (DURANTE A TEMPORADA)
-  // ==========================================
   const isReady = gameState.playersReady?.includes(currentUserUid || '');
   
   const indexNaoSimulada = gameState.schedule?.findIndex((r: any) => r.jogos[0]?.homeScore == null) ?? -1;
@@ -285,7 +284,7 @@ export default function Championship() {
     <div className="min-h-screen bg-neutral-950 text-neutral-200 p-4 md:p-8 flex flex-col font-sans">
       <div className="max-w-7xl mx-auto w-full flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-2xl mb-6 sm:mb-8 gap-4 sm:gap-0">
         <div className="text-center md:text-left">
-          <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">{(gameState as any).nomeCampeonato || "Campeonato Brasileiro"}</h1>
+          <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">{nomeCampeonato}</h1>
           <p className="text-cyan-400 font-bold tracking-widest uppercase text-xs sm:text-sm mt-1">
             RODADA {rodadaVerdadeira} DE {totalRounds}
           </p>

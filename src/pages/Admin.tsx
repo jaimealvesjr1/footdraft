@@ -385,43 +385,21 @@ Siga ESTRITAMENTE esta estrutura:
       let mensagemAlert = "Rodada Simulada com Sucesso!";
 
       if (rodadaVerdadeira === midSeason) {
-        mensagemAlert = "FIM DO 1º TURNO! Abra a janela de transferências.";
-        proximaFase = 'TRANSFER_WINDOW';
+        mensagemAlert = "FIM DO 1º TURNO! Após a TV, clique no botão 'Janela de Transf.'";
       } else if (rodadaVerdadeira === endSeason) {
-        proximaFase = 'FINISHED'; 
-        mensagemAlert = "CAMPEONATO ENCERRADO! Histórico da temporada foi salvo.";
+        mensagemAlert = "ÚLTIMA RODADA SIMULADA! Após a TV, o histórico estará salvo.";
 
-        // CÁLCULO DEFINITIVO DA CHUTEIRA DE OURO NO BACKEND
-        const artilheirosMap: Record<string, { gols: number; timeId: string }> = {};
-        updatedSchedule.forEach(rodada => {
-          rodada.jogos?.forEach((jogo: any) => {
-            jogo.relatorio?.forEach((evento: any) => {
-              if (evento.tipo === 'GOL' && evento.jogadorId) {
-                if (!artilheirosMap[evento.jogadorId]) {
-                  const timeId = evento.time === 'CASA' ? jogo.homeId : jogo.awayId;
-                  artilheirosMap[evento.jogadorId] = { gols: 0, timeId };
-                }
-                artilheirosMap[evento.jogadorId].gols += 1;
-              }
-            });
-          });
-        });
-
-        const topScorers = Object.values(artilheirosMap).sort((a, b) => b.gols - a.gols);
-        const topScorerTimeId = topScorers.length > 0 ? topScorers[0].timeId : null;
-        
         const dataAtual = new Date().toLocaleDateString('pt-BR');
         const promessasHistorico = novosStandings.map((timeDaTabela, index) => {
              const isHumano = (gameState.teams || []).find((t:any) => t.id === timeDaTabela.id)?.isUser;
              if (isHumano) {
                  const historicoData = {
-                     temporada: (gameState as any).nomeCampeonato || `Série A - ${dataAtual}`,
+                     temporada: dataAtual,
                      posicao: index + 1,
                      pontos: timeDaTabela.pts,
                      vitorias: timeDaTabela.v,
                      saldo: timeDaTabela.sg,
-                     campeao: index === 0,
-                     teveArtilheiro: timeDaTabela.id === topScorerTimeId // MARCA SE O TIME TEVE O ARTILHEIRO
+                     campeao: index === 0
                  };
                  return updateDoc(doc(db, "usuarios", timeDaTabela.id), {
                      historicoCampanhas: arrayUnion(historicoData),
@@ -747,6 +725,7 @@ Siga ESTRITAMENTE esta estrutura:
             <input type="text" placeholder="Nome da Temporada" value={nomeCampeonato} onChange={(e) => setNomeCampeonato(e.target.value)} className="w-full bg-neutral-950 text-white p-2 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-fifa-blue text-[10px] sm:text-xs" />
             <div className="flex gap-2 w-full">
               <select value={tamanhoCampeonato} onChange={(e) => setTamanhoCampeonato(Number(e.target.value))} className="bg-neutral-950 text-white p-2 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-fifa-blue text-[10px] sm:text-xs">
+                <option value={4}>4 Times</option>
                 <option value={10}>10 Times</option>
                 <option value={14}>14 Times</option>
                 <option value={20}>20 Times</option>
