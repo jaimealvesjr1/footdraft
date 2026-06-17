@@ -81,11 +81,9 @@ export default function Admin() {
       
       usersSnap.forEach(d => {
         const data = d.data();
-        // Apenas considera usuários que já criaram o nome do time
-        if (data.nomeTime) {
-          const timeFormatado = { id: d.id, nome: String(data.nomeTime), isUser: true };
-          if (data.inscrito) humanosInscritos.push(timeFormatado);
-          else humanosEsperando.push(timeFormatado);
+        // MUDANÇA: Agora só puxa para a CBF quem estiver ativamente INSCRITO
+        if (data.nomeTime && data.inscrito) {
+          humanosInscritos.push({ id: d.id, nome: String(data.nomeTime), isUser: true });
         }
       });
 
@@ -144,28 +142,7 @@ export default function Admin() {
     }
   };
 
-  const iniciarPreTemporada = async () => {
-    const confirmado = await confirmarAcao("Iniciar a Pré-Temporada? O sistema sorteará a ordem.");
-    if (!confirmado) return;
-    try {
-      const usersSnap = await getDocs(collection(db, "usuarios"));
-      let uidsRegistrados: string[] = [];
-      usersSnap.forEach(doc => { 
-          if (doc.data().nomeTime && doc.data().inscrito) uidsRegistrados.push(doc.id); 
-      });
-      if (uidsRegistrados.length === 0) { toast.error("Nenhum jogador na Sala de Espera!"); return; }
-
-      const ordemSorteada = uidsRegistrados.sort(() => Math.random() - 0.5);
-      await setDoc(doc(db, "game", "state"), {
-        phase: 'PRE_SEASON', currentRound: 1, draftOrder: ordemSorteada,
-        draftTurnUid: ordemSorteada[0], draftDeadline: Date.now() + (3 * 60 * 1000), playersReady: []
-      }, { merge: true });
-
-      toast.success(`Pré-Temporada iniciada com ${ordemSorteada.length} jogadores inscritos!`);
-    } catch (error) { toast.error("Erro ao iniciar a Pré-Temporada."); }
-  };
-
-  const gerarCampeonato = async () => {
+  const iniciarTemporada = async () => {
     try {
       if (timesSelecionados.length < 4) {
         toast.error("Selecione pelo menos 4 times para formar um campeonato!");
@@ -180,119 +157,93 @@ export default function Admin() {
       const TOTAL_TIMES = times.length;
       const nomeCamp = nomeCampeonato || `Temporada ${new Date().getFullYear()}`;
 
+      // 1. VERIFICAÇÃO INTELIGENTE DE HUMANOS (Sem bloqueio)
+      const humanosParticipantes = times.filter(t => t.isUser).map(t => t.id);
+      const temHumanos = humanosParticipantes.length > 0;
+
       const masterCalendar: any[] = []; 
 
       // LÓGICA DE COPA (MATA-MATA)
       if (formatoTorneio === 'COPA') {
         const chavesPerfeitas = [4, 8, 16, 32];
         if (!chavesPerfeitas.includes(TOTAL_TIMES)) {
-          toast.error("Para Copas (Mata-Mata), selecione uma quantidade de times que feche uma chave perfeita (4, 8, 16 ou 32)!");
+          toast.error("Para Copas, selecione uma quantidade de times que feche uma chave perfeita (4, 8, 16 ou 32)!");
           return;
         }
 
         const faseNome = TOTAL_TIMES === 4 ? "Semifinal" : TOTAL_TIMES === 8 ? "Quartas de Final" : "Oitavas de Final";
         const jogosCopa = [];
         
-        // Emparelha os times sorteados de 2 em 2
         for (let i = 0; i < TOTAL_TIMES; i += 2) {
-          jogosCopa.push({
-            homeId: times[i].id, awayId: times[i+1].id,
-            homeScore: null, awayScore: null, relatorio: []
-          });
+          jogosCopa.push({ homeId: times[i].id, awayId: times[i+1].id, homeScore: null, awayScore: null, relatorio: [] });
         }
 
         if (tipoTurno === 'IDA') {
-          masterCalendar.push({
-            tipo: 'COPA', titulo: `${nomeCamp} - ${faseNome}`,
-            jogos: jogosCopa, decidirCopa: true
-          });
+          masterCalendar.push({ tipo: 'COPA', titulo: `${nomeCamp} - ${faseNome}`, jogos: jogosCopa, decidirCopa: true });
         } else {
-          masterCalendar.push({
-            tipo: 'COPA', titulo: `${nomeCamp} - ${faseNome} (Ida)`,
-            jogos: jogosCopa, decidirCopa: false
-          });
-          const jogosVolta = jogosCopa.map(j => ({
-            homeId: j.awayId, awayId: j.homeId, homeScore: null, awayScore: null, relatorio: []
-          }));
-          masterCalendar.push({
-            tipo: 'COPA', titulo: `${nomeCamp} - ${faseNome} (Volta)`,
-            jogos: jogosVolta, decidirCopa: true
-          });
+          masterCalendar.push({ tipo: 'COPA', titulo: `${nomeCamp} - ${faseNome} (Ida)`, jogos: jogosCopa, decidirCopa: false });
+          const jogosVolta = jogosCopa.map(j => ({ homeId: j.awayId, awayId: j.homeId, homeScore: null, awayScore: null, relatorio: [] }));
+          masterCalendar.push({ tipo: 'COPA', titulo: `${nomeCamp} - ${faseNome} (Volta)`, jogos: jogosVolta, decidirCopa: true });
         }
+      } 
+      // LÓGICA DE LIGA (PONTOS CORRIDOS)
+      else {
+        const numRodadasIda = TOTAL_TIMES - 1;
+        const metade = TOTAL_TIMES / 2;
+        let idsRotacao = times.map(t => t.id);
 
-        const standings = times.map(t => ({ id: t.id, pts: 0, j: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0 }));
-        await setDoc(doc(db, "game", "state"), {
-          teams: times, standings: standings, schedule: masterCalendar,
-          currentRound: 1, phase: 'CHAMPIONSHIP', totalTeams: TOTAL_TIMES, nomeCampeonato: nomeCamp,
-          regrasClassificacao: { zona1: { nome: zona1Nome, vagas: zona1Vagas }, zona2: { nome: zona2Nome, vagas: zona2Vagas }, zona3: { nome: zona3Nome, vagas: zona3Vagas }, zona4: { nome: zona4Nome, vagas: zona4Vagas } }
-        });
-        toast.success(`Copa configurada: ${TOTAL_TIMES} times emparelhados no Mata-Mata!`);
-        return;
-      }
-
-      // LÓGICA DE LIGA ANTERIOR (Mantenha o bloco de código da Liga intacto abaixo)
-      const standings = times.map(t => ({ id: t.id, pts: 0, j: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0 }));
-      const numRodadasIda = TOTAL_TIMES - 1;
-      const metade = TOTAL_TIMES / 2;
-
-      let idsRotacao = times.map(t => t.id);
-
-      // 1. Gerar LIGA (1º Turno)
-      const scheduleIda: any[] = [];
-      for (let rodada = 0; rodada < numRodadasIda; rodada++) {
-        const jogosDaRodada = [];
-        for (let i = 0; i < metade; i++) {
-          const casa = idsRotacao[i];
-          const fora = idsRotacao[TOTAL_TIMES - 1 - i];
-          if (i === 0 && rodada % 2 === 1) {
-            jogosDaRodada.push({ homeId: fora, awayId: casa, homeScore: null, awayScore: null, relatorio: [] });
-          } else {
-            jogosDaRodada.push({ homeId: casa, awayId: fora, homeScore: null, awayScore: null, relatorio: [] });
+        const scheduleIda: any[] = [];
+        for (let rodada = 0; rodada < numRodadasIda; rodada++) {
+          const jogosDaRodada = [];
+          for (let i = 0; i < metade; i++) {
+            const casa = idsRotacao[i];
+            const fora = idsRotacao[TOTAL_TIMES - 1 - i];
+            if (i === 0 && rodada % 2 === 1) {
+              jogosDaRodada.push({ homeId: fora, awayId: casa, homeScore: null, awayScore: null, relatorio: [] });
+            } else {
+              jogosDaRodada.push({ homeId: casa, awayId: fora, homeScore: null, awayScore: null, relatorio: [] });
+            }
           }
+          
+          masterCalendar.push({ tipo: 'LIGA', titulo: `${nomeCamp} - Rodada ${rodada + 1}`, jogos: jogosDaRodada });
+          scheduleIda.push(jogosDaRodada);
+          
+          const ultimoId = idsRotacao.pop();
+          if (ultimoId) idsRotacao.splice(1, 0, ultimoId);
         }
-        
-        masterCalendar.push({
-          tipo: 'LIGA',
-          titulo: `${nomeCamp} - Rodada ${rodada + 1}`,
-          jogos: jogosDaRodada
-        });
-        
-        scheduleIda.push(jogosDaRodada); // Guardado temporariamente para espelhar na Volta
-        
-        const ultimoId = idsRotacao.pop();
-        if (ultimoId) idsRotacao.splice(1, 0, ultimoId);
+
+        if (tipoTurno === 'IDA_VOLTA') {
+          // 2. JANELA CONDICIONAL: Adiciona a Janela de Transferências APENAS se houver Humanos!
+          if (temHumanos) {
+            masterCalendar.push({ tipo: 'TRANSFERENCIAS', titulo: `Janela de Transferências (Meio de Temporada)`, jogos: [] });
+          }
+          
+          scheduleIda.forEach((jogosIda, index) => {
+             const jogosVolta = jogosIda.map((jogo: any) => ({ homeId: jogo.awayId, awayId: jogo.homeId, homeScore: null, awayScore: null, relatorio: [] }));
+             masterCalendar.push({ tipo: 'LIGA', titulo: `${nomeCamp} - Rodada ${numRodadasIda + index + 1} (Returno)`, jogos: jogosVolta });
+          });
+        }
       }
 
-      // 2. Inserir a Janela de Transferências no Meio e o Returno
-      if (tipoTurno === 'IDA_VOLTA') {
-        
-        // Insere o evento de Mercado de Transferências no Calendário
-        masterCalendar.push({
-          tipo: 'TRANSFERENCIAS',
-          titulo: `Janela de Transferências (Meio de Temporada)`,
-          jogos: []
-        });
+      // INTEGRAÇÃO DINÂMICA
+      const ordemSorteada = humanosParticipantes.sort(() => Math.random() - 0.5);
+      const standings = times.map(t => ({ id: t.id, pts: 0, j: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0 }));
 
-        // Gera as Rodadas de Volta invertendo os mandos de campo da Ida
-        scheduleIda.forEach((jogosIda, index) => {
-           const jogosVolta = jogosIda.map((jogo: any) => ({
-             homeId: jogo.awayId, awayId: jogo.homeId, homeScore: null, awayScore: null, relatorio: []
-           }));
-           
-           masterCalendar.push({
-             tipo: 'LIGA',
-             titulo: `${nomeCamp} - Rodada ${numRodadasIda + index + 1} (Returno)`,
-             jogos: jogosVolta
-           });
-        });
-      }
+      // 3. FASE INICIAL DINÂMICA (Pula o Draft se for CPUxCPU)
+      const faseInicial = temHumanos ? 'PRE_SEASON' : 'FIRST_HALF';
 
-      await updateDoc(doc(db, "game", "state"), {
-        teams: times, standings: standings, schedule: masterCalendar,
-        currentRound: 1, phase: 'FIRST_HALF',
+      await setDoc(doc(db, "game", "state"), {
+        teams: times, 
+        standings: standings, 
+        schedule: masterCalendar,
+        currentRound: 1, 
+        phase: faseInicial, // 🔥 Se não tiver humano, vai direto pros jogos!
+        draftOrder: ordemSorteada,
+        draftTurnUid: temHumanos ? "SIMULTANEO" : null, 
+        draftDeadline: temHumanos ? Date.now() + (2 * 60 * 1000) : null, 
+        playersReady: [],
         totalTeams: TOTAL_TIMES,
         nomeCampeonato: nomeCamp,
-        // NOVO: Salva as regras dinâmicas de classificação
         regrasClassificacao: {
           zona1: { nome: zona1Nome, vagas: zona1Vagas },
           zona2: { nome: zona2Nome, vagas: zona2Vagas },
@@ -301,8 +252,15 @@ export default function Admin() {
         }
       });
 
-      toast.success(`Torneio configurado: ${TOTAL_TIMES} times e ${masterCalendar.length} eventos agendados!`);
-    } catch (error) { toast.error("Erro ao gerar a tabela e calendário."); }
+      // Feedback personalizado
+      if (temHumanos) {
+        toast.success(`Temporada Iniciada! Calendário gerado e Draft aberto para ${ordemSorteada.length} técnicos!`);
+      } else {
+        toast.success(`Temporada 100% CPU Iniciada! Calendário gerado, Draft e Janela ignorados.`);
+      }
+    } catch (error) { 
+      toast.error("Erro ao gerar a tabela e iniciar campeonato."); 
+    }
   };
 
   const simularRodadaAtual = async () => {
@@ -316,7 +274,6 @@ export default function Admin() {
       if (!eventoAtual) throw new Error("O Calendário Mestre já foi concluído!");
       
       const rodadaVerdadeira = gameState.currentRound;
-      const isUltimoEvento = rodadaVerdadeira === gameState.schedule.length;
       
       const batch = writeBatch(db);
 
@@ -327,7 +284,19 @@ export default function Admin() {
         const usuariosNoJogo = (gameState.teams || []).filter(t => t.isUser).map(t => t.id);
         const tabela = [...gameState.standings];
         
-        // 1. Distribuir Cotas de Troca
+        // PULO DO GATO: Se for liga 100% CPU, ignora o mercado e já joga pro 2º turno!
+        if (usuariosNoJogo.length === 0) {
+           batch.update(doc(db, "game", "state"), { 
+             phase: 'SECOND_HALF', 
+             currentRound: rodadaVerdadeira + 1 // Pula a rodada fantasma do calendário
+           });
+           await batch.commit();
+           toast.success("Janela ignorada. Iniciando o Returno Automático (CPUxCPU).");
+           setSalvando(false);
+           return;
+        }
+
+        // 1. Distribuir Cotas de Troca (Apenas para Humanos)
         tabela.forEach((time, index) => {
           if (usuariosNoJogo.includes(time.id)) {
             let totalTrocas = index <= 3 ? 6 : index <= 7 ? 4 : 2;
@@ -353,8 +322,9 @@ export default function Admin() {
         batch.update(doc(db, "game", "state"), { 
           phase: 'TRANSFER_WINDOW', 
           draftOrder: ordemDeEscolha, 
-          draftTurnUid: ordemDeEscolha[0] || null, 
+          draftTurnUid: "SIMULTANEO", 
           playersReady: [],
+          draftDeadline: Date.now() + (3 * 60 * 1000), // 3 Minutos de mercado cronometrado
           currentRound: rodadaVerdadeira + 1 // Avança o calendário para não repetir a janela
         });
         
@@ -575,8 +545,10 @@ export default function Admin() {
         }
       }
 
+      const isUltimoEvento = rodadaVerdadeira === updatedSchedule.length;
+
       if (isUltimoEvento) {
-        proximaFase = 'FINISHED'; 
+        proximaFase = 'FINISHED';
         mensagemAlert = "CALENDÁRIO ENCERRADO! O histórico da temporada foi arquivado.";
         
         const dataAtual = new Date().toLocaleDateString('pt-BR');
@@ -946,7 +918,7 @@ Siga ESTRITAMENTE esta estrutura:
               </div>
 
               <div className={`bg-neutral-950 p-4 rounded-lg border text-center flex-1 md:min-w-40 transition-all flex flex-col justify-center ${podeDarApito ? 'border-yellow-500/50 shadow-[0_0_15px_rgba(234,179,8,0.2)]' : 'border-neutral-800'}`}>
-                <p className="text-[17px] text-neutral-500 uppercase font-black">Na TV (Estádio)</p>
+                <p className="text-[17px] text-neutral-500 uppercase font-black">Na TV</p>
                 <p className={`text-xl sm:text-2xl font-black leading-none my-1 ${podeDarApito ? 'text-yellow-500 animate-pulse' : 'text-neutral-400'}`}>
                   {timesNaTv.length} <span className="text-sm text-neutral-600">/ {totalHumanos}</span>
                 </p>
@@ -972,11 +944,62 @@ Siga ESTRITAMENTE esta estrutura:
 
         {/* ================= ABA 1: TORNEIO ================= */}
         {abaAtiva === 'TORNEIO' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fade-in">
-            <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border border-neutral-800 flex flex-col gap-2 sm:gap-3">
-              <h3 className="text-[17px] sm:text-xs text-neutral-500 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">1. Preparação</h3>
-              <button onClick={() => mudarFase('SETUP')} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 font-bold rounded text-white shadow transition-all text-xs sm:text-sm">Sala de Espera</button>
-              <button onClick={iniciarPreTemporada} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-fifa-gray-light font-bold rounded shadow transition-all text-xs sm:text-sm">Iniciar Pré-Temporada</button>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-fade-in">
+            <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-fifa-green flex flex-col gap-2 sm:gap-3 shadow-lg">
+              <h3 className="text-[17px] sm:text-xs text-fifa-green font-black uppercase tracking-widest border-b border-neutral-800 pb-2">Preparação</h3>
+              {/* O botão fica sozinho, e com um destaque mais elegante. O botão de Draft foi removido! */}
+              <button onClick={() => mudarFase('SETUP')} className="w-full py-2 mt-auto bg-neutral-800 hover:bg-neutral-700 font-bold rounded text-white shadow transition-all text-xs sm:text-sm">
+                Retornar à Sala de Espera
+              </button>
+            </div>
+
+            <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-orange-500 flex flex-col gap-2 sm:gap-3 shadow-lg">
+              <h3 className="text-[17px] sm:text-xs text-orange-500 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">Intervenções (AFK)</h3>
+              
+              <select 
+                value={jogadorDesistenteUid} 
+                onChange={(e) => setJogadorDesistenteUid(e.target.value)} 
+                className="w-full bg-neutral-950 text-white p-2 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-orange-500 text-[17px] sm:text-xs"
+              >
+                <option value="">Selecione o Técnico...</option>
+                {gameState?.teams?.filter(t => t.isUser).map(t => (
+                   <option key={t.id} value={t.id}>{t.nome}</option>
+                ))}
+              </select>
+              <button 
+                onClick={() => autoEscalarJogador(jogadorDesistenteUid)} 
+                disabled={!jogadorDesistenteUid || salvando} 
+                className="w-full py-2 bg-orange-500/20 hover:bg-orange-500/40 border border-orange-500/50 text-orange-500 font-bold rounded shadow transition-all text-[17px] sm:text-xs uppercase tracking-widest disabled:opacity-50"
+              >
+                Auto-Escalar Time
+              </button>
+
+              <div className="flex gap-2 w-full mt-auto">
+                <button 
+                  onClick={pularTurnoAtual} 
+                  disabled={salvando || !jogadorDesistenteUid || !gameState?.draftOrder || gameState.draftOrder.length === 0} 
+                  className="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-white font-bold rounded shadow transition-all text-[17px] sm:text-[17px] uppercase tracking-widest disabled:opacity-50"
+                  title="Remove o jogador selecionado da fila atual"
+                >
+                  ⏭️ Pular
+                </button>
+                <button 
+                  onClick={retornarJogadorAFK} 
+                  disabled={salvando || !jogadorDesistenteUid} 
+                  className="flex-1 py-2 bg-fifa-green/20 hover:bg-fifa-green/40 border border-fifa-green/50 text-fifa-green font-bold rounded shadow transition-all text-[17px] sm:text-[17px] uppercase tracking-widest disabled:opacity-50"
+                  title="Devolve o jogador para o final da fila"
+                >
+                  ↩️ Devolver
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-fifa-red flex flex-col gap-2 sm:gap-3 shadow-lg">
+              <h3 className="text-[17px] sm:text-xs text-fifa-red font-black uppercase tracking-widest border-b border-neutral-800 pb-2">Interrupções</h3>              
+              <button onClick={encerrarCampeonatoForcado} className="w-full py-2 mt-auto bg-amber-700/10 hover:bg-amber-700/20 border border-amber-700/30 text-amber-700 font-black rounded shadow transition-all text-[17px] uppercase tracking-widest">
+                Encerrar Campeonato Agora
+              </button>
+              <button onClick={resetarPreTemporada} disabled={salvando} className="py-2 px-6 bg-fifa-red/10 hover:bg-fifa-red/30 border border-fifa-red/30 hover:border-fifa-red/60 text-fifa-red font-black text-[17px] sm:text-xs tracking-widest uppercase rounded-lg shadow transition-all">🚨 Resetar Servidor Profundo</button>
             </div>
 
             <div className="md:col-span-2 lg:col-span-4 bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-fifa-blue flex flex-col gap-4 shadow-lg order-last lg:order-0">
@@ -1075,8 +1098,8 @@ Siga ESTRITAMENTE esta estrutura:
               </div>
 
               <div className="flex flex-col sm:flex-row gap-4 mt-2">
-                <button onClick={gerarCampeonato} disabled={salvando} className="flex-1 py-4 bg-fifa-blue/20 hover:bg-fifa-blue/30 border border-fifa-blue/50 text-fifa-blue font-black rounded-xl shadow transition-all text-xs uppercase tracking-widest">
-                  Criar Calendário e Tabela Oficial
+                <button onClick={iniciarTemporada} disabled={salvando} className="flex-1 py-4 bg-fifa-blue/20 hover:bg-fifa-blue/30 border border-fifa-blue/50 text-fifa-blue font-black rounded-xl shadow transition-all text-xs uppercase tracking-widest">
+                  ▶️ Iniciar Temporada (Tabela + Draft)
                 </button>
                 
                 {(() => {
@@ -1097,58 +1120,6 @@ Siga ESTRITAMENTE esta estrutura:
                   );
                 })()}
               </div>
-            </div>
-
-            <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-fifa-green flex flex-col gap-2 sm:gap-3 shadow-lg">
-              <h3 className="text-[17px] sm:text-xs text-fifa-green font-black uppercase tracking-widest border-b border-neutral-800 pb-2">3. Intervenções</h3>              
-              <button onClick={encerrarCampeonatoForcado} className="w-full py-2 mt-auto bg-fifa-red/10 hover:bg-fifa-red/20 border border-fifa-red/30 text-fifa-red font-black rounded shadow transition-all text-[17px] uppercase tracking-widest">
-                Encerrar Campeonato Agora
-              </button>
-            </div>
-
-            <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-orange-500 flex flex-col gap-2 sm:gap-3 shadow-lg">
-              <h3 className="text-[17px] sm:text-xs text-orange-500 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">4. Intervenções (AFK)</h3>
-              
-              <select 
-                value={jogadorDesistenteUid} 
-                onChange={(e) => setJogadorDesistenteUid(e.target.value)} 
-                className="w-full bg-neutral-950 text-white p-2 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-orange-500 text-[17px] sm:text-xs"
-              >
-                <option value="">Selecione o Técnico...</option>
-                {gameState?.teams?.filter(t => t.isUser).map(t => (
-                   <option key={t.id} value={t.id}>{t.nome}</option>
-                ))}
-              </select>
-              <button 
-                onClick={() => autoEscalarJogador(jogadorDesistenteUid)} 
-                disabled={!jogadorDesistenteUid || salvando} 
-                className="w-full py-2 bg-orange-500/20 hover:bg-orange-500/40 border border-orange-500/50 text-orange-500 font-bold rounded shadow transition-all text-[17px] sm:text-xs uppercase tracking-widest disabled:opacity-50"
-              >
-                Auto-Escalar Time
-              </button>
-
-              <div className="flex gap-2 w-full mt-auto">
-                <button 
-                  onClick={pularTurnoAtual} 
-                  disabled={salvando || !jogadorDesistenteUid || !gameState?.draftOrder || gameState.draftOrder.length === 0} 
-                  className="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-white font-bold rounded shadow transition-all text-[17px] sm:text-[17px] uppercase tracking-widest disabled:opacity-50"
-                  title="Remove o jogador selecionado da fila atual"
-                >
-                  ⏭️ Pular
-                </button>
-                <button 
-                  onClick={retornarJogadorAFK} 
-                  disabled={salvando || !jogadorDesistenteUid} 
-                  className="flex-1 py-2 bg-fifa-green/20 hover:bg-fifa-green/40 border border-fifa-green/50 text-fifa-green font-bold rounded shadow transition-all text-[17px] sm:text-[17px] uppercase tracking-widest disabled:opacity-50"
-                  title="Devolve o jogador para o final da fila"
-                >
-                  ↩️ Devolver
-                </button>
-              </div>
-            </div>
-            
-            <div className="col-span-1 md:col-span-2 lg:col-span-4 flex justify-end pt-2">
-              <button onClick={resetarPreTemporada} disabled={salvando} className="py-2 px-6 bg-fifa-red/10 hover:bg-fifa-red/30 border border-fifa-red/30 hover:border-fifa-red/60 text-fifa-red font-black text-[17px] sm:text-xs tracking-widest uppercase rounded-lg shadow transition-all">🚨 Resetar Servidor Profundo</button>
             </div>
           </div>
         )}
@@ -1171,8 +1142,8 @@ Siga ESTRITAMENTE esta estrutura:
                   {clubesSalvos.map(clube => (
                     <div key={clube.id} className="flex justify-between items-center bg-neutral-950 p-3 sm:p-4 rounded-xl border border-neutral-800 hover:border-neutral-700 transition-all group">
                       <div className="truncate pr-2">
-                        <p className="font-black text-white text-xs sm:text-sm uppercase tracking-tight truncate">{clube.nome} <span className="text-fifa-green">{clube.ano}</span></p>
-                        <p className="text-[8px] sm:text-[17px] text-fifa-blue font-black uppercase tracking-widest mt-0.5 sm:mt-1">{clube.elenco.length} Atletas • OVR: {getClubeOvr(clube.elenco)}</p>
+                        <p className="font-black text-white text-xs sm:text-sm tracking-tight truncate">{clube.nome} <span className="text-fifa-green">{clube.ano}</span></p>
+                        <p className="text-[8px] sm:text-[11px] text-fifa-blue font-black uppercase tracking-widest mt-0.5 sm:mt-1">{clube.elenco.length} Atletas • OVR: {getClubeOvr(clube.elenco)}</p>
                       </div>
                       <div className="flex gap-1 sm:gap-2 shrink-0">
                         <button onClick={() => setClubeEmEdicao(clube)} className="text-[17px] sm:text-xs bg-neutral-800 px-2 sm:px-4 py-1 sm:py-2 rounded-lg font-black text-white hover:bg-neutral-700 hover:text-fifa-blue transition-colors">Edit</button>

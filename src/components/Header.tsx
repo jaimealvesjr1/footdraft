@@ -140,7 +140,7 @@ export default function Header() {
           </div>
 
           <nav className="hidden lg:flex items-center gap-1 bg-neutral-900/80 p-1 rounded-full border border-neutral-800 shadow-inner">
-            <button onClick={() => navigate('/dashboard')} className={`px-4 py-1.5 rounded-full text-sm font-bold transition-all uppercase tracking-widest ${path === '/dashboard' ? 'bg-fifa-blue text-white shadow-[0_0_10px_rgba(42,57,141,0.5)] border border-transparent' : 'text-fifa-gray-light hover:text-white hover:bg-neutral-800'}`}>Vestiário</button>
+            <button onClick={() => navigate('/dashboard')} className={`px-4 py-1.5 rounded-full text-sm font-bold transition-all uppercase tracking-widest ${path === '/dashboard' ? 'bg-fifa-blue text-white shadow-[0_0_10px_rgba(42,57,141,0.5)] border border-transparent' : 'text-fifa-gray-light hover:text-white hover:bg-neutral-800'}`}>Centro de Treinamento</button>
             <button onClick={() => navigate('/championship')} className={`px-4 py-1.5 rounded-full text-sm font-bold transition-all uppercase tracking-widest ${path === '/championship' ? 'bg-fifa-green text-white shadow-[0_0_10px_rgba(60,172,59,0.5)] border border-transparent' : 'text-fifa-gray-light hover:text-white hover:bg-neutral-800'}`}>Campeonato</button>
             
             <div className="w-px h-4 bg-neutral-700 mx-2"></div>

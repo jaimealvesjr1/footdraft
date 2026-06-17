@@ -333,7 +333,7 @@ export default function Dashboard() {
     );
   };
 
-  if (carregando) return <div className="h-screen bg-neutral-950 flex items-center justify-center text-yellow-400 font-bold uppercase tracking-widest animate-pulse">Carregando Vestiário...</div>;
+  if (carregando) return <div className="h-screen bg-neutral-950 flex items-center justify-center text-yellow-400 font-bold uppercase tracking-widest animate-pulse">Carregando Centro de Treinamento...</div>;
 
   const nivelTecnico = Math.floor(xpTotal / 100) + 1;
 

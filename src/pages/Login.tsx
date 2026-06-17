@@ -18,7 +18,7 @@ export default function Login() {
     try {
       if (isLogin) {
         await signInWithEmailAndPassword(auth, email, senha);
-        toast.success("Acesso liberado! Bem-vindo ao vestiário.");
+        toast.success("Acesso liberado! Bem-vindo ao Centro de Treinamento.");
       } else {
         await createUserWithEmailAndPassword(auth, email, senha);
         toast.success("Contrato assinado! Sua conta foi criada.");
@@ -61,7 +61,7 @@ export default function Login() {
           Foot<span className="text-fifa-green">Draft26</span>
         </h2>
         <p className="text-center text-[10px] sm:text-xs text-neutral-500 uppercase tracking-widest font-bold mb-6 sm:mb-8">
-          {isLogin ? "Acesso ao Vestiário" : "Assine seu Contrato"}
+          {isLogin ? "Acesso ao CT" : "Assine seu Contrato"}
         </p>
         
         {/* Ajuste de Gaps: gap-3 no mobile, sm:gap-4 no desktop */}

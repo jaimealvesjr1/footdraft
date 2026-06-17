@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { db } from '../services/firebase';
-import { doc, onSnapshot, updateDoc, getDocs, collection } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, getDocs, collection, arrayUnion } from 'firebase/firestore';
 import { type GameState, type Jogador, type Clube } from '../types';
-import toast from 'react-hot-toast'; // NOVO AQUI
+import toast from 'react-hot-toast';
 
 interface Usuario {
   id: string;
@@ -21,7 +21,6 @@ interface PacoteSubstituicao {
 export default function TransferWindow({ uid }: { uid: string }) {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [meuTime, setMeuTime] = useState<Usuario | null>(null);
-  const [todosUsuarios, setTodosUsuarios] = useState<Usuario[]>([]); // ESTADO ADICIONADO
   
   const [todosJogadoresBase, setTodosJogadoresBase] = useState<Jogador[]>([]);
   const [jogadoresLivres, setJogadoresLivres] = useState<Jogador[]>([]);
@@ -32,6 +31,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
   const [substituicoes, setSubstituicoes] = useState<PacoteSubstituicao[]>([]);
   
   const [carregando, setCarregando] = useState(false);
+  const [tempoRestante, setTempoRestante] = useState<number>(180);
 
   useEffect(() => {
     const unsubGame = onSnapshot(doc(db, "game", "state"), (snap) => {
@@ -58,16 +58,12 @@ export default function TransferWindow({ uid }: { uid: string }) {
 
   useEffect(() => {
     const unsubUsuarios = onSnapshot(collection(db, "usuarios"), (snap) => {
-      const usuariosList: Usuario[] = [];
       const idsOcupados = new Set<string>();
       
       snap.forEach(d => {
         const u = { id: d.id, ...d.data() } as Usuario;
-        usuariosList.push(u);
         if (u.elenco) u.elenco.forEach((j: Jogador) => idsOcupados.add(j.id));
       });
-      
-      setTodosUsuarios(usuariosList);
       
       if (todosJogadoresBase.length > 0) {
         setJogadoresLivres(todosJogadoresBase.filter(j => !idsOcupados.has(j.id)));
@@ -76,11 +72,45 @@ export default function TransferWindow({ uid }: { uid: string }) {
     return () => unsubUsuarios();
   }, [todosJogadoresBase]);
 
-  const isMinhaVez = gameState?.draftTurnUid === uid;
+  const jaPronto = gameState?.playersReady?.includes(uid);
+  const bloqueado = jaPronto || carregando;
   const trocasRestantes = meuTime ? (meuTime.trocasPermitidas - (meuTime.trocasRealizadas || 0)) : 0;
 
+  // CRONÔMETRO E AUTO-AVANÇO
+  useEffect(() => {
+    if (!gameState || !gameState.draftDeadline) return;
+    const deadline = gameState.draftDeadline;
+    const intervalo = setInterval(() => {
+      const agora = Date.now();
+      const faltam = Math.max(0, Math.floor((deadline - agora) / 1000));
+      setTempoRestante(faltam);
+      if (faltam === 0) {
+        clearInterval(intervalo);
+        if (!jaPronto) encerrarMinhasTrocas(false); // Acabou o tempo, encerra forçado
+      }
+    }, 1000);
+    return () => clearInterval(intervalo);
+  }, [gameState, jaPronto]);
+
+  // SERVIDOR MESTRE: Avança a fase quando todos estiverem prontos
+  useEffect(() => {
+    if (!gameState || !gameState.draftOrder) return;
+    const totalHumanos = gameState.draftOrder.length;
+    const prontos = gameState.playersReady?.length || 0;
+    const souOMestre = gameState.draftOrder[0] === uid;
+
+    if (prontos >= totalHumanos && totalHumanos > 0 && souOMestre) {
+      updateDoc(doc(db, "game", "state"), {
+        phase: 'SECOND_HALF',
+        draftTurnUid: null,
+        draftOrder: [],
+        playersReady: []
+      });
+    }
+  }, [gameState?.playersReady]);
+
   const toggleJogadorSaida = (jogador: Jogador) => {
-    if (!isMinhaVez) return;
+    if (bloqueado) return;
     
     if (jogadoresParaSair.some(j => j.id === jogador.id)) {
       setJogadoresParaSair(prev => prev.filter(j => j.id !== jogador.id));
@@ -94,7 +124,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
   };
 
   const travarSaidasEGerarOpcoes = () => {
-    if (jogadoresParaSair.length === 0) return;
+    if (jogadoresParaSair.length === 0 || bloqueado) return;
 
     let poolDisponivel = [...jogadoresLivres];
     const novosPacotes: PacoteSubstituicao[] = [];
@@ -113,9 +143,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
         }
         if (selecionados.length === 3) break;
       }
-
       poolDisponivel = poolDisponivel.filter(l => !selecionados.some(s => s.id === l.id));
-
       novosPacotes.push({ saindo, opcoes: selecionados, selecionado: null });
     }
 
@@ -124,6 +152,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
   };
 
   const selecionarEntrada = (indexDoPacote: number, jogadorEscolhido: Jogador) => {
+    if (bloqueado) return;
     setSubstituicoes(prev => {
       const novaLista = [...prev];
       novaLista[indexDoPacote].selecionado = jogadorEscolhido;
@@ -136,12 +165,11 @@ export default function TransferWindow({ uid }: { uid: string }) {
   );
 
   const confirmarTrocasEmMassa = async () => {
-    if (!meuTime || !gameState || !todasVagasPreenchidas) return;
+    if (!meuTime || !gameState || !todasVagasPreenchidas || bloqueado) return;
     setCarregando(true);
 
     try {
       const substituicoesValidas = substituicoes.filter(sub => sub.selecionado !== null);
-
       const idsSaindo = substituicoesValidas.map(sub => sub.saindo.id);
       const jogadoresEntrando = substituicoesValidas.map(sub => sub.selecionado!);
 
@@ -156,65 +184,28 @@ export default function TransferWindow({ uid }: { uid: string }) {
         trocasRealizadas: trocasFeitas
       });
 
-      const novaOrdem = [...(gameState.draftOrder || [])];
-      novaOrdem.shift(); 
-
-      if (novaOrdem.length > 0) {
-        await updateDoc(doc(db, "game", "state"), { draftTurnUid: novaOrdem[0], draftOrder: novaOrdem });
-      } else {
-        await gerarProximaRodadaDeTransferencias();
-      }
-
-      setJogadoresParaSair([]);
-      setSubstituicoes([]);
-      setEtapaTroca('SELECIONAR_SAIDA');
+      await updateDoc(doc(db, "game", "state"), { playersReady: arrayUnion(uid) });
       toast.success(`${substituicoes.length} transferência(s) concluída(s)!`);
-
     } catch (error) {
-      console.error(error);
       toast.error("Erro ao realizar trocas.");
     } finally {
       setCarregando(false);
     }
   };
 
-  const gerarProximaRodadaDeTransferencias = async () => {
-    if (!gameState || !gameState.standings) return;
-
-    const usersSnap = await getDocs(collection(db, "usuarios"));
-    const usuariosAtuais = usersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Usuario));
-    const tabelaInvertida = [...gameState.standings].reverse();
-    const novaFila: string[] = [];
-
-    tabelaInvertida.forEach(timeDaTabela => {
-      const user = usuariosAtuais.find(u => u.id === timeDaTabela.id);
-      if (user && (user.trocasRealizadas || 0) < (user.trocasPermitidas || 0)) {
-        novaFila.push(user.id);
-      }
-    });
-
-    if (novaFila.length > 0) {
-      await updateDoc(doc(db, "game", "state"), {
-        draftTurnUid: novaFila[0], 
-        draftOrder: novaFila 
-      });
-    } else {
-      await updateDoc(doc(db, "game", "state"), { draftTurnUid: null, draftOrder: [] });
-      toast.success("Janela de Transferências encerrada!");
-    }
-  };
-
-  const encerrarMinhasTrocas = async () => {
-    if (!window.confirm("Você abrirá mão das suas trocas restantes. Confirmar?")) return;
+  const encerrarMinhasTrocas = async (pedirConfirmacao = true) => {
+    if (bloqueado) return;
+    if (pedirConfirmacao && !window.confirm("Você abrirá mão das suas trocas restantes. Confirmar?")) return;
     
-    await updateDoc(doc(db, "usuarios", uid), { trocasRealizadas: meuTime?.trocasPermitidas || 0 });
-
-    const novaOrdem = [...(gameState?.draftOrder || [])];
-    novaOrdem.shift();
-    if (novaOrdem.length > 0) {
-      await updateDoc(doc(db, "game", "state"), { draftTurnUid: novaOrdem[0], draftOrder: novaOrdem });
-    } else {
-      await gerarProximaRodadaDeTransferencias();
+    setCarregando(true);
+    try {
+      await updateDoc(doc(db, "usuarios", uid), { trocasRealizadas: meuTime?.trocasPermitidas || 0 });
+      await updateDoc(doc(db, "game", "state"), { playersReady: arrayUnion(uid) });
+      if(pedirConfirmacao) toast.success("Você encerrou suas participações nesta janela!");
+    } catch (e) {
+      toast.error("Erro ao pular janela.");
+    } finally {
+      setCarregando(false);
     }
   };
 
@@ -229,38 +220,29 @@ export default function TransferWindow({ uid }: { uid: string }) {
         Trocas Disponíveis: <span className="text-white text-xl">{trocasRestantes}</span>
       </p>
 
-      {/* FILA DA JANELA */}
-      {gameState?.draftOrder && gameState.draftOrder.length > 0 && (
-        <div className="mb-8">
-          <h3 className="text-sm font-bold text-neutral-500 uppercase tracking-widest mb-3">Ordem da Janela de Transferências</h3>
-          <div className="flex gap-3 overflow-x-auto pb-4 custom-scrollbar">
-            {gameState.draftOrder.map((idDaVez, index) => {
-              const userDaVez = todosUsuarios.find(u => u.id === idDaVez);
-              const isCurrent = index === 0;
-              return (
-                <div 
-                  key={`${idDaVez}-${index}`} 
-                  className={`shrink-0 px-4 py-3 rounded-lg border-2 font-black uppercase tracking-widest text-sm transition-all flex items-center gap-2 ${
-                    isCurrent 
-                      ? 'border-fifa-green bg-fifa-green/20 text-fifa-green shadow-[0_0_10px_rgba(60,172,59,0.3)]' 
-                      : 'border-neutral-800 bg-neutral-900 text-neutral-500'
-                  }`}
-                >
-                  <span className="text-xs opacity-50">{index + 1}º</span>
-                  {userDaVez?.nomeTime || 'Carregando...'}
-                </div>
-              );
-            })}
+      {/* STATUS GLOBAL DA SALA */}
+      <div className="bg-black p-3 flex justify-between items-center rounded-xl mb-6 border border-neutral-800 text-xs sm:text-sm font-bold uppercase tracking-wider">
+        <span className="text-fifa-gray-light">Técnicos Prontos: <span className="text-fifa-green font-black">{gameState?.playersReady?.length || 0} / {gameState?.draftOrder?.length || 0}</span></span>
+        <div className="flex items-center gap-4">
+          <div className="text-center px-4 border-r border-neutral-700">
+            <span className="block text-[10px] text-neutral-500">Cronômetro</span>
+            <span className={`text-xl font-black font-mono ${tempoRestante < 30 ? 'text-fifa-red animate-pulse' : 'text-white'}`}>
+              {Math.floor(tempoRestante / 60).toString().padStart(2, '0')}:{(tempoRestante % 60).toString().padStart(2, '0')}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 bg-fifa-blue rounded-full animate-pulse"></span>
+            <span className="text-fifa-blue font-black hidden sm:inline">Mercado Simultâneo</span>
           </div>
         </div>
-      )}
-
-      {/* BANNER DE TURNO */}
-      <div className={`p-4 rounded-xl font-black uppercase tracking-widest text-center mb-8 border-2 transition-all ${isMinhaVez ? 'bg-fifa-green/20 border-fifa-green text-fifa-green animate-pulse shadow-[0_0_15px_rgba(60,172,59,0.2)]' : 'bg-neutral-900 border-neutral-800 text-neutral-500'}`}>
-        {isMinhaVez ? '⏱️ É A SUA VEZ! ESCOLHA QUEM ENTRA E QUEM SAI.' : 'Aguarde a sua vez...'}
       </div>
 
-      {isMinhaVez && (
+      {/* BANNER DE TURNO */}
+      <div className={`p-4 rounded-xl font-black uppercase tracking-widest text-center mb-8 border-2 transition-all ${jaPronto ? 'bg-neutral-900 border-neutral-800 text-neutral-500' : 'bg-fifa-green/20 border-fifa-green text-fifa-green shadow-[0_0_15px_rgba(60,172,59,0.2)]'}`}>
+        {jaPronto ? '✅ MERCADO ENCERRADO PARA VOCÊ. AGUARDANDO ADVERSÁRIOS.' : '⏱️ MERCADO ABERTO! ESCOLHA QUEM ENTRA E QUEM SAI.'}
+      </div>
+
+      {!jaPronto && (
         <div className="flex flex-wrap gap-4 mb-8 justify-center">
           
           {etapaTroca === 'SELECIONAR_SAIDA' && (
@@ -284,10 +266,47 @@ export default function TransferWindow({ uid }: { uid: string }) {
           )}
           
           <button 
-            onClick={encerrarMinhasTrocas}
+            onClick={() => { encerrarMinhasTrocas(true) }}
             className="px-6 py-3 bg-neutral-900 hover:bg-fifa-red/20 border border-neutral-800 hover:border-fifa-red/50 font-bold uppercase rounded transition-colors text-fifa-red"
           >
             Encerrar Minha Janela (Pular)
+          </button>
+        </div>
+      )}
+
+      {/* BANNER DE TURNO */}
+      <div className={`p-4 rounded-xl font-black uppercase tracking-widest text-center mb-8 border-2 transition-all ${jaPronto ? 'bg-neutral-900 border-neutral-800 text-neutral-500' : 'bg-fifa-green/20 border-fifa-green text-fifa-green shadow-[0_0_15px_rgba(60,172,59,0.2)]'}`}>
+        {jaPronto ? '✅ MERCADO ENCERRADO PARA VOCÊ. AGUARDANDO ADVERSÁRIOS.' : '⏱️ MERCADO ABERTO! ESCOLHA QUEM ENTRA E QUEM SAI.'}
+      </div>
+
+      {!jaPronto && (
+        <div className="flex flex-wrap gap-4 mb-8 justify-center">
+          
+          {etapaTroca === 'SELECIONAR_SAIDA' && (
+            <button 
+              disabled={jogadoresParaSair.length === 0}
+              onClick={travarSaidasEGerarOpcoes}
+              className="px-6 py-3 bg-fifa-blue hover:bg-opacity-80 disabled:opacity-50 font-black uppercase tracking-widest rounded shadow-[0_0_15px_rgba(42,57,141,0.4)] transition-colors text-white"
+            >
+              Confirmar {jogadoresParaSair.length} Saída(s) e Ver Opções 🔒
+            </button>
+          )}
+
+          {etapaTroca === 'SELECIONAR_ENTRADAS' && (
+            <button 
+              disabled={!todasVagasPreenchidas || carregando}
+              onClick={confirmarTrocasEmMassa}
+              className="px-6 py-3 bg-fifa-green hover:bg-opacity-80 disabled:opacity-50 font-black uppercase tracking-widest rounded shadow-[0_0_15px_rgba(60,172,59,0.4)] transition-colors text-white"
+            >
+              {carregando ? 'Processando...' : `Efetuar ${substituicoes.length} Transferência(s) ♻️`}
+            </button>
+          )}
+          
+          <button 
+            onClick={() => encerrarMinhasTrocas(true)}
+            className="px-6 py-3 bg-neutral-900 hover:bg-fifa-red/20 border border-neutral-800 hover:border-fifa-red/50 font-bold uppercase rounded-xl transition-colors text-fifa-red"
+          >
+            Encerrar Minhas Trocas (Finalizar)
           </button>
         </div>
       )}
@@ -349,7 +368,7 @@ export default function TransferWindow({ uid }: { uid: string }) {
                       {pacote.opcoes.map(opcao => (
                         <div 
                           key={opcao.id}
-                          onClick={() => isMinhaVez && selecionarEntrada(index, opcao)}
+                          onClick={() => !bloqueado && selecionarEntrada(index, opcao)}
                           className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${pacote.selecionado?.id === opcao.id ? 'border-fifa-green bg-fifa-green/20 shadow-[0_0_15px_rgba(60,172,59,0.2)]' : 'border-neutral-800 bg-neutral-900 hover:border-fifa-green/50'}`}
                         >
                           <p className="font-black text-lg">{opcao.nome}</p>
