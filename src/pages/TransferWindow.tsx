@@ -220,19 +220,21 @@ export default function TransferWindow({ uid }: { uid: string }) {
         Trocas Disponíveis: <span className="text-white text-xl">{trocasRestantes}</span>
       </p>
 
-      {/* STATUS GLOBAL DA SALA */}
-      <div className="bg-black p-3 flex justify-between items-center rounded-xl mb-6 border border-neutral-800 text-xs sm:text-sm font-bold uppercase tracking-wider">
-        <span className="text-fifa-gray-light">Técnicos Prontos: <span className="text-fifa-green font-black">{gameState?.playersReady?.length || 0} / {gameState?.draftOrder?.length || 0}</span></span>
-        <div className="flex items-center gap-4">
+      {/* STATUS GLOBAL DA SALA E CRONÔMETRO */}
+      <div className="bg-black p-4 flex flex-col md:flex-row justify-between items-center rounded-xl mb-6 border border-neutral-800 shadow-xl gap-4">
+        <div className="text-xs sm:text-sm font-bold uppercase tracking-wider text-fifa-gray-light">
+          Técnicos Prontos: <span className="text-fifa-green font-black">{gameState?.playersReady?.length || 0} / {gameState?.draftOrder?.length || 0}</span>
+        </div>
+        <div className="flex items-center gap-6">
           <div className="text-center px-4 border-r border-neutral-700">
-            <span className="block text-[10px] text-neutral-500">Cronômetro</span>
-            <span className={`text-xl font-black font-mono ${tempoRestante < 30 ? 'text-fifa-red animate-pulse' : 'text-white'}`}>
+            <span className="block text-[10px] text-neutral-500 uppercase font-bold tracking-widest">Cronômetro</span>
+            <span className={`text-2xl font-black font-mono ${tempoRestante < 30 ? 'text-fifa-red animate-pulse' : 'text-white'}`}>
               {Math.floor(tempoRestante / 60).toString().padStart(2, '0')}:{(tempoRestante % 60).toString().padStart(2, '0')}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 bg-fifa-blue rounded-full animate-pulse"></span>
-            <span className="text-fifa-blue font-black hidden sm:inline">Mercado Simultâneo</span>
+            <span className="w-3 h-3 bg-fifa-blue rounded-full animate-pulse"></span>
+            <span className="text-fifa-blue font-black uppercase tracking-widest text-sm">Mercado Simultâneo</span>
           </div>
         </div>
       </div>
