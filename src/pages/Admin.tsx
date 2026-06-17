@@ -165,13 +165,17 @@ export default function Admin() {
 
       // LÓGICA DE COPA (MATA-MATA)
       if (formatoTorneio === 'COPA') {
-        const chavesPerfeitas = [4, 8, 16, 32];
+        const chavesPerfeitas = [4, 8, 16, 32, 64];
         if (!chavesPerfeitas.includes(TOTAL_TIMES)) {
-          toast.error("Para Copas, selecione uma quantidade de times que feche uma chave perfeita (4, 8, 16 ou 32)!");
+          toast.error("Para Copas, selecione uma quantidade de times que feche uma chave perfeita (4, 8, 16, 32 ou 64)!");
           return;
         }
 
-        const faseNome = TOTAL_TIMES === 4 ? "Semifinal" : TOTAL_TIMES === 8 ? "Quartas de Final" : "Oitavas de Final";
+        const faseNome = TOTAL_TIMES === 4 ? "Semifinal" 
+                       : TOTAL_TIMES === 8 ? "Quartas de Final" 
+                       : TOTAL_TIMES === 16 ? "Oitavas de Final" 
+                       : TOTAL_TIMES === 32 ? "16 avos de Final" 
+                       : "32 avos de Final";
         const jogosCopa = [];
         
         for (let i = 0; i < TOTAL_TIMES; i += 2) {
@@ -513,7 +517,6 @@ export default function Admin() {
           proximaFase = 'FINISHED';
           mensagemAlert = `GRANDE FINAL CONCLUÍDA! O campeão da Copa foi coroado!`;
         } else {
-          // Sorteia os confrontos da próxima fase com os vencedores
           const proximosJogosCopa = [];
           for (let i = 0; i < vencedores.length; i += 2) {
             proximosJogosCopa.push({
@@ -521,7 +524,12 @@ export default function Admin() {
               homeScore: null, awayScore: null, relatorio: []
             });
           }
-          const proximaFaseNome = vencedores.length === 2 ? "Grande Final" : vencedores.length === 4 ? "Semifinal" : "Quartas de Final";
+          
+          const proximaFaseNome = vencedores.length === 2 ? "Grande Final" 
+                                : vencedores.length === 4 ? "Semifinal" 
+                                : vencedores.length === 8 ? "Quartas de Final" 
+                                : vencedores.length === 16 ? "Oitavas de Final" 
+                                : "16 avos de Final";
           const nomeCamp = (gameState as any).nomeCampeonato || "Copa";
 
           if (tipoTurno === 'IDA') {
