@@ -323,14 +323,33 @@ export default function Matches() {
             </div>
           </>
         ) : (
-          /* MODO ESPECTADOR: Quando está de folga/BYE, renderiza todos os jogos completos num Grid */
+          /* MODO ESPECTADOR: Layouts Dinâmicos dependendo da quantidade de jogos */
           <div className="w-full flex flex-col gap-6">
-            <h3 className="text-yellow-500 font-black tracking-widest uppercase mb-2 border-b border-neutral-800 pb-2 text-sm sm:text-base text-center">
-              Modo Espectador - Acompanhe os Jogos da Rodada
+            <h3 className={`font-black tracking-widest uppercase mb-2 border-b border-neutral-800 pb-2 text-center transition-all ${partidasAoVivo.length === 1 ? 'text-yellow-400 text-xl sm:text-3xl animate-pulse drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]' : 'text-yellow-500 text-sm sm:text-base'}`}>
+              {partidasAoVivo.length === 1 ? '👑 A GRANDE FINAL 👑' : 'Sofá da Sala - Acompanhe os Jogos'}
             </h3>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 w-full">
-              {partidasAoVivo.map((jogo, i) => renderJogoCompleto(jogo, i))}
-            </div>
+            
+            {partidasAoVivo.length === 1 ? (
+              /* 1 JOGO (GRANDE FINAL): Destacada, centralizada, gigante e com brilho dourado */
+              <div className="flex justify-center w-full animate-fade-in">
+                <div className="w-full max-w-5xl rounded-xl ring-4 ring-yellow-500/50 shadow-[0_0_80px_rgba(234,179,8,0.2)] relative">
+                  <div className="absolute inset-0 bg-linear-to-b from-yellow-500/10 to-transparent pointer-events-none rounded-xl z-0"></div>
+                  <div className="relative z-10">
+                    {partidasAoVivo.map((jogo, i) => renderJogoCompleto(jogo, i))}
+                  </div>
+                </div>
+              </div>
+            ) : partidasAoVivo.length === 2 ? (
+              /* 2 JOGOS (SEMIFINAIS): Largura total da tela, um abaixo do outro */
+              <div className="flex flex-col gap-10 w-full animate-fade-in">
+                {partidasAoVivo.map((jogo, i) => renderJogoCompleto(jogo, i))}
+              </div>
+            ) : (
+              /* 3 OU MAIS JOGOS: Grid tradicional de 2 colunas */
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 w-full animate-fade-in">
+                {partidasAoVivo.map((jogo, i) => renderJogoCompleto(jogo, i))}
+              </div>
+            )}
           </div>
         )}
         
