@@ -1171,7 +1171,7 @@ Siga ESTRITAMENTE esta estrutura:
                   <div className="flex flex-col md:flex-row gap-3 sm:gap-4 mb-4 sm:mb-8">
                     <div className="flex-1">
                       <label className="block text-[8px] sm:text-[17px] font-black text-fifa-blue uppercase tracking-widest mb-1 sm:mb-2">Designação</label>
-                      <input type="text" value={clubeEmEdicao.nome} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, nome: e.target.value})} className="w-full bg-neutral-950 border border-neutral-800 p-3 sm:p-4 rounded-xl text-white text-sm font-black uppercase focus:border-fifa-blue outline-none transition-all"/>
+                      <input type="text" value={clubeEmEdicao.nome} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, nome: e.target.value})} className="w-full bg-neutral-950 border border-neutral-800 p-3 sm:p-4 rounded-xl text-white text-sm font-black focus:border-fifa-blue outline-none transition-all"/>
                     </div>
                     <div className="w-full md:w-32 sm:w-40">
                       <label className="block text-[8px] sm:text-[17px] font-black text-fifa-blue uppercase tracking-widest mb-1 sm:mb-2">Temporada</label>
