@@ -6,14 +6,10 @@ export default function Footer() {
         {/* Lado Esquerdo: Logo Typográfico FIFA 26 */}
         <div className="flex items-center hover:cursor-pointer group gap-4">
           <img 
-            src="/logo.jpg" 
+            src="/header.png" 
             alt="FootDraft Logo Oficial" 
             className="h-12 w-auto object-contain rounded-md grayscale group-hover:grayscale-0 transition-all duration-500" 
           />
-          <div className="w-px h-8 bg-neutral-800 hidden md:block"></div>
-          <span className="text-sm font-black text-fifa-gray-dark uppercase tracking-tighter opacity-50 group-hover:opacity-100 transition-opacity duration-300">
-            FootDraft
-          </span>
         </div>
 
         {/* Lado Direito: Textos do rodapé */}
@@ -22,7 +18,7 @@ export default function Footer() {
             &copy; {new Date().getFullYear()} FootDraft. Todos os direitos reservados.
           </p>
           <p className="text-[11px] text-gray-500 font-bold tracking-widest">
-            Created by MrJames
+            Created by Ascentia
           </p>
         </div>
       </div>

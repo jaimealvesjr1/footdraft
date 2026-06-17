@@ -33,42 +33,53 @@ export default function Championship() {
     return time ? time.nome : "Time não encontrado";
   };
 
-  // MATEMÁTICA DINÂMICA (Para rodadas e Classificações)
   const totalTeams = (gameState as any)?.totalTeams || 20;
-  const totalRounds = (totalTeams - 1) * 2;
-  const midSeason = totalTeams - 1;
+  
+  const eventosLiga = gameState.schedule?.filter(e => e.tipo === 'LIGA') || [];
+  const totalRounds = eventosLiga.length; 
+  
+  const eventosPassadosLiga = gameState.schedule?.slice(0, gameState.currentRound - 1).filter(e => e.tipo === 'LIGA').length || 0;
+  const rodadaVerdadeira = Math.min(eventosPassadosLiga + 1, totalRounds);
+  const isReturno = eventosPassadosLiga >= (totalRounds / 2);
   
   const nomeCampeonato = (gameState as any)?.nomeCampeonato || "Campeonato Brasileiro";
 
   // CÁLCULO DINÂMICO DE VAGAS NA TABELA DE CLASSIFICAÇÃO
-  const tLibertadores = Math.max(1, Math.floor(totalTeams * 0.20)); // Top 20%
-  const tPreLiberta = tLibertadores + Math.max(1, Math.floor(totalTeams * 0.10)); // +10%
-  const tSudamericana = tPreLiberta + Math.max(1, Math.floor(totalTeams * 0.30)); // +30%
-  const tRebaixamento = totalTeams - Math.max(1, Math.floor(totalTeams * 0.20)); // Últimos 20%
+  const regras = (gameState as any)?.regrasClassificacao || {
+    zona1: { nome: 'Libertadores', vagas: Math.max(1, Math.floor(totalTeams * 0.20)) },
+    zona2: { nome: 'Pré-Libertadores', vagas: Math.max(1, Math.floor(totalTeams * 0.10)) },
+    zona3: { nome: 'Sul-Americana', vagas: Math.max(1, Math.floor(totalTeams * 0.30)) },
+    zona4: { nome: 'Rebaixamento', vagas: Math.max(1, Math.floor(totalTeams * 0.20)) }
+  };
+
+  const tZona1 = regras.zona1.vagas; 
+  const tZona2 = tZona1 + regras.zona2.vagas; 
+  const tZona3 = tZona2 + regras.zona3.vagas; 
+  const tZona4 = totalTeams - regras.zona4.vagas; // O Rebaixamento é contado de baixo para cima
 
   // Função que diz a cor da linha da tabela de acordo com a posição (index 0 = 1º lugar)
   const getCorTabela = (index: number) => {
-    if (index < tLibertadores) return 'text-cyan-400';
-    if (index < tPreLiberta) return 'text-blue-400';
-    if (index < tSudamericana) return 'text-green-400';
-    if (index >= tRebaixamento) return 'text-orange-500';
+    // Para colorir, ignoramos a cor se a vaga for 0
+    if (regras.zona1.vagas > 0 && index < tZona1) return 'text-cyan-400';
+    if (regras.zona2.vagas > 0 && index < tZona2) return 'text-blue-400';
+    if (regras.zona3.vagas > 0 && index < tZona3) return 'text-green-400';
+    if (regras.zona4.vagas > 0 && index >= tZona4) return 'text-orange-500';
     return 'text-neutral-500'; // Zona Morte (Cinza)
   };
 
-  if (gameState.phase === 'FINISHED' || gameState.currentRound > totalRounds) {
+  const totalEventosCalendario = gameState.schedule?.length || 0;
+  if (gameState.phase === 'FINISHED' || gameState.currentRound > totalEventosCalendario) {
     const standings = gameState.standings || [];
-    const campeao = standings[0];
+    const campeao = standings[0]; // <--- ADICIONADO AQUI: O campeão é o índice 0 da tabela!
     
     // Matemática Dinâmica de Recompensa (O campeão e rebaixados ganham o mesmo, o meio adapta)
     const calcularPontosTemporada = (posicaoIndex: number) => {
       if (posicaoIndex === 0) return 100;
-      if (posicaoIndex === 1) return 80;
-      if (posicaoIndex === 2) return 70;
-      if (posicaoIndex === 3) return 60;
-      if (posicaoIndex < tPreLiberta) return 50;
-      if (posicaoIndex < tSudamericana) return 30;
-      if (posicaoIndex < tRebaixamento) return 10;
-      return 0; // Rebaixados não ganham XP
+      if (regras.zona1.vagas > 0 && posicaoIndex < tZona1) return 80; // Outros da Zona 1
+      if (regras.zona2.vagas > 0 && posicaoIndex < tZona2) return 50; // Zona 2
+      if (regras.zona3.vagas > 0 && posicaoIndex < tZona3) return 30; // Zona 3
+      if (regras.zona4.vagas > 0 && posicaoIndex >= tZona4) return 0; // Rebaixados (Zona 4) perdem direito a XP
+      return 10; // Times no "limbo" (meio da tabela sem vaga) ganham consolação
     };
 
     const artilheirosMap: Record<string, { nome: string; gols: number; clube: string }> = {};
@@ -128,21 +139,79 @@ export default function Championship() {
             </div>
           )}
 
-          {/* EXIBIÇÃO DO PLACAR DA ÚLTIMA RODADA CRUCIAL */}
+          {/* GRÁFICO DA CAMPANHA DA TEMPORADA */}
           {(() => {
-            const ultimosJogos = gameState.schedule?.[totalRounds - 1]?.jogos || [];
-            const meuUltimoJogoGeral = ultimosJogos.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
-            if (!meuUltimoJogoGeral || meuUltimoJogoGeral.homeScore === null) return null;
+            if (!currentUserUid || !gameState.schedule) return null;
             
+            const minhaCampanha: ('V' | 'E' | 'D')[] = [];
+            let golsFeitos = 0;
+            let golsSofridos = 0;
+
+            gameState.schedule.forEach(rodada => {
+              // IGNORA se for a janela de transferências
+              if (rodada.tipo !== 'LIGA' || !rodada.jogos) return; 
+              const meuJogo = rodada.jogos.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
+              
+              if (meuJogo && meuJogo.homeScore !== null && meuJogo.awayScore !== null) {
+                const isCasa = meuJogo.homeId === currentUserUid;
+                const golsMeus = isCasa ? (meuJogo.homeScore ?? 0) : (meuJogo.awayScore ?? 0);
+                const golsDeles = isCasa ? (meuJogo.awayScore ?? 0) : (meuJogo.homeScore ?? 0);
+                
+                golsFeitos += golsMeus;
+                golsSofridos += golsDeles;
+
+                if (golsMeus > golsDeles) minhaCampanha.push('V');
+                else if (golsMeus === golsDeles) minhaCampanha.push('E');
+                else minhaCampanha.push('D');
+              }
+            });
+
+            if (minhaCampanha.length === 0) return null;
+
+            const totalV = minhaCampanha.filter(r => r === 'V').length;
+            const totalE = minhaCampanha.filter(r => r === 'E').length;
+            const totalD = minhaCampanha.filter(r => r === 'D').length;
+
             return (
-              <div className="max-w-3xl mx-auto bg-neutral-900 p-4 sm:p-5 rounded-2xl border border-neutral-800 shadow-2xl mb-8 animate-fade-in">
-                <h3 className="text-yellow-500 font-black mb-4 uppercase text-[10px] sm:text-xs tracking-widest border-b border-neutral-800 pb-2 text-center">Seu Desempenho na Rodada Final (Rodada {totalRounds})</h3>
-                <div className="flex justify-center items-center gap-2 sm:gap-4 text-2xl sm:text-3xl font-black text-white bg-neutral-950 py-3 sm:py-4 rounded-xl border border-neutral-800 shadow-inner px-4">
-                  <div className="text-right flex-1 text-xs sm:text-lg md:text-xl text-neutral-400 uppercase tracking-tighter truncate">{getNomeClube(meuUltimoJogoGeral.homeId)}</div>
-                  <span className={meuUltimoJogoGeral.homeScore > (meuUltimoJogoGeral.awayScore || 0) ? "text-fifa-green" : "text-white"}>{meuUltimoJogoGeral.homeScore}</span>
-                  <span className="text-neutral-700 text-lg sm:text-xl">x</span>
-                  <span className={(meuUltimoJogoGeral.awayScore || 0) > meuUltimoJogoGeral.homeScore ? "text-fifa-green" : "text-white"}>{meuUltimoJogoGeral.awayScore}</span>
-                  <div className="text-left flex-1 text-xs sm:text-lg md:text-xl text-neutral-400 uppercase tracking-tighter truncate">{getNomeClube(meuUltimoJogoGeral.awayId)}</div>
+              <div className="max-w-4xl mx-auto bg-neutral-900 p-6 sm:p-8 rounded-3xl border border-neutral-800 shadow-2xl mb-12 animate-fade-in relative overflow-hidden">
+                <h3 className="text-cyan-400 font-black mb-6 uppercase text-xs sm:text-sm tracking-widest border-b border-neutral-800 pb-3 text-center">Resumo da sua Temporada</h3>
+                
+                <div className="flex flex-col md:flex-row items-center gap-8 justify-between">
+                  {/* Lado Esquerdo: Estatísticas de Gols */}
+                  <div className="flex gap-4 text-center">
+                    <div className="bg-neutral-950 px-6 py-4 rounded-2xl border border-neutral-800 shadow-inner">
+                      <p className="text-3xl font-black text-white">{golsFeitos}</p>
+                      <p className="text-[10px] uppercase text-neutral-500 font-bold tracking-widest mt-1">Gols Pró</p>
+                    </div>
+                    <div className="bg-neutral-950 px-6 py-4 rounded-2xl border border-neutral-800 shadow-inner">
+                      <p className="text-3xl font-black text-neutral-400">{golsSofridos}</p>
+                      <p className="text-[10px] uppercase text-neutral-500 font-bold tracking-widest mt-1">Gols Sofridos</p>
+                    </div>
+                  </div>
+
+                  {/* Lado Direito: Linha do Tempo de Forma (Streak) */}
+                  <div className="flex-1 w-full max-w-lg flex flex-col items-center md:items-end">
+                    <div className="flex gap-4 mb-3 text-[10px] uppercase tracking-widest font-black">
+                      <span className="text-fifa-green">{totalV} Vitórias</span>
+                      <span className="text-neutral-400">{totalE} Empates</span>
+                      <span className="text-fifa-red">{totalD} Derrotas</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 justify-center md:justify-end">
+                      {minhaCampanha.map((resultado, i) => (
+                        <div 
+                          key={i} 
+                          title={`Rodada ${i+1}`}
+                          className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded text-[10px] sm:text-xs font-black text-neutral-950
+                            ${resultado === 'V' ? 'bg-fifa-green shadow-[0_0_8px_rgba(60,172,59,0.5)]' 
+                            : resultado === 'E' ? 'bg-neutral-400' 
+                            : 'bg-fifa-red shadow-[0_0_8px_rgba(230,29,37,0.5)]'}`}
+                        >
+                          {resultado}
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[9px] text-neutral-600 font-bold uppercase tracking-widest mt-3 text-center md:text-right w-full">Histórico Rodada a Rodada</p>
+                  </div>
                 </div>
               </div>
             );
@@ -203,7 +272,7 @@ export default function Championship() {
                         <td className="py-3 text-center text-neutral-400 font-bold hidden sm:table-cell">{time.v}</td>
                         <td className="py-3 text-center text-neutral-400 font-bold">{time.sg > 0 ? `+${time.sg}` : time.sg}</td>
                         <td className="py-3 text-center">
-                           <span className={`text-[10px] px-2 py-1 rounded font-black tracking-widest ${index < tLibertadores ? 'bg-cyan-900/30 text-cyan-400 border border-cyan-800' : index >= tRebaixamento ? 'bg-red-900/20 text-red-500' : 'bg-neutral-800 text-neutral-400'}`}>
+                           <span className={`text-[10px] px-2 py-1 rounded font-black tracking-widest ${getCorTabela(index).replace('text-', 'border border-').replace('400', '800').replace('500', '900')} ${getCorTabela(index)} bg-neutral-900`}>
                               +{calcularPontosTemporada(index)}
                            </span>
                         </td>
@@ -213,11 +282,11 @@ export default function Championship() {
                 </tbody>
               </table>
               
-              <div className="mt-4 pt-4 border-t border-neutral-800 text-[10px] font-bold tracking-widest uppercase flex flex-wrap gap-4 justify-between">
-                <span className="text-cyan-400">■ G{tLibertadores} (Libertadores)</span>
-                <span className="text-blue-400">■ G{tPreLiberta} (Qualificatórias)</span>
-                <span className="text-green-400">■ G{tSudamericana} (Sul-Americana)</span>
-                <span className="text-orange-500">■ Z{totalTeams - tRebaixamento} (Rebaixamento)</span>
+              <div className="mt-4 pt-4 border-t border-neutral-800 text-[10px] font-bold tracking-widest uppercase flex flex-wrap gap-2 sm:gap-4 justify-between">
+                {regras.zona1.vagas > 0 && <span className="text-cyan-400">■ G{tZona1} ({regras.zona1.nome})</span>}
+                {regras.zona2.vagas > 0 && <span className="text-blue-400">■ G{tZona2} ({regras.zona2.nome})</span>}
+                {regras.zona3.vagas > 0 && <span className="text-green-400">■ G{tZona3} ({regras.zona3.nome})</span>}
+                {regras.zona4.vagas > 0 && <span className="text-orange-500">■ Z{regras.zona4.vagas} ({regras.zona4.nome})</span>}
               </div>
             </div>
           </div>
@@ -266,18 +335,20 @@ export default function Championship() {
 
   const isReady = gameState.playersReady?.includes(currentUserUid || '');
   
-  const indexNaoSimulada = gameState.schedule?.findIndex((r: any) => r.jogos[0]?.homeScore == null) ?? -1;
-  const rodadaIndex = indexNaoSimulada !== -1 ? indexNaoSimulada : (totalRounds - 1);
-  const rodadaVerdadeira = rodadaIndex + 1;
+  const eventoAtual = gameState.schedule?.[gameState.currentRound - 1];
+  const meuProximoJogo = eventoAtual?.jogos?.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
 
-  const jogosDaRodada = gameState.schedule?.[rodadaIndex]?.jogos || [];
-  const meuProximoJogo = jogosDaRodada.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
-
-  const rodadaAnteriorIndex = rodadaIndex - 1;
   let meuUltimoJogo = null;
-  if (rodadaAnteriorIndex >= 0) {
-    const jogosAnteriores = gameState.schedule?.[rodadaAnteriorIndex]?.jogos || [];
-    meuUltimoJogo = jogosAnteriores.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
+  // Para encontrar o último jogo, procura de trás pra frente ignorando o mercado
+  for (let i = gameState.currentRound - 2; i >= 0; i--) {
+    const eventoPassado = gameState.schedule?.[i];
+    if (eventoPassado?.tipo === 'LIGA') {
+      const jogoPassado = eventoPassado.jogos?.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
+      if (jogoPassado && jogoPassado.homeScore !== null) {
+        meuUltimoJogo = jogoPassado;
+        break;
+      }
+    }
   }
 
   return (
@@ -316,9 +387,9 @@ export default function Championship() {
         
         <div className="xl:col-span-2 space-y-8">
           <div className="bg-neutral-900 p-4 sm:p-8 rounded-xl border border-neutral-800 shadow-2xl flex flex-col items-center text-center relative overflow-hidden">
-            <div className={`absolute top-0 left-0 w-full h-2 bg-linear-to-r ${rodadaVerdadeira > midSeason ? 'from-purple-600 to-purple-300' : 'from-yellow-600 to-yellow-300'}`}></div>
+            <div className={`absolute top-0 left-0 w-full h-2 bg-linear-to-r ${isReturno ? 'from-purple-600 to-purple-300' : 'from-yellow-600 to-yellow-300'}`}></div>
             <h2 className="text-xs sm:text-sm font-black text-neutral-500 mb-6 sm:mb-8 uppercase tracking-widest">
-              {rodadaVerdadeira > midSeason ? 'Fase de Returno (2ª Metade)' : 'O Seu Próximo Confronto'}
+              {isReturno ? 'Fase de Returno (2ª Metade)' : 'O Seu Próximo Confronto'}
             </h2>
             
             <div className="flex items-center justify-center gap-2 sm:gap-6 w-full mb-8 sm:mb-10">
@@ -385,11 +456,11 @@ export default function Championship() {
             </table>
           </div>
           <div className="mt-4 pt-4 border-t border-neutral-800 text-[8px] sm:text-[10px] font-bold tracking-widest uppercase flex flex-wrap gap-2 sm:gap-4 justify-between">
-            <span className="text-cyan-400">■ G{tLibertadores} (Libertadores)</span>
-            <span className="text-blue-400">■ G{tPreLiberta} (Qualificatórias)</span>
-            <span className="text-green-400">■ G{tSudamericana} (Sul-Americana)</span>
-            <span className="text-orange-500">■ Z{totalTeams - tRebaixamento} (Rebaixamento)</span>
-          </div>
+                {regras.zona1.vagas > 0 && <span className="text-cyan-400">■ G{tZona1} ({regras.zona1.nome})</span>}
+                {regras.zona2.vagas > 0 && <span className="text-blue-400">■ G{tZona2} ({regras.zona2.nome})</span>}
+                {regras.zona3.vagas > 0 && <span className="text-green-400">■ G{tZona3} ({regras.zona3.nome})</span>}
+                {regras.zona4.vagas > 0 && <span className="text-orange-500">■ Z{regras.zona4.vagas} ({regras.zona4.nome})</span>}
+              </div>
         </div>
 
       </div>

@@ -11,7 +11,7 @@ export default function Header() {
   const [nomeTime, setNomeTime] = useState<string | null>(null);
   const [nomeTecnico, setNomeTecnico] = useState<string | null>(null);
   const [faseAtual, setFaseAtual] = useState<string>("Carregando...");
-  const [rawPhase, setRawPhase] = useState<string>(""); // Guarda a fase original para validações
+  const [rawPhase, setRawPhase] = useState<string>("");
   const [historico, setHistorico] = useState<any[]>([]);
   
   const [userUid, setUserUid] = useState<string | null>(null);
@@ -110,9 +110,9 @@ export default function Header() {
   const RenderLogo = () => (
     <div className="flex items-center gap-2">
       <img 
-        src="/header.jpg" 
+        src="/header.png" 
         alt="FootDraft Logo" 
-        className="h-15 w-auto object-contain rounded-md" // Ajuste o h-10 (altura) conforme preferir (h-8, h-12)
+        className="h-13 w-auto object-contain rounded-md" // Ajuste o h-10 (altura) conforme preferir (h-8, h-12)
       />
     </div>
   );
@@ -133,8 +133,8 @@ export default function Header() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
               <RenderLogo />
-              <span className="hidden md:inline-block text-[10px] bg-neutral-900 border border-fifa-gray-dark text-fifa-gray-light px-2 py-0.5 rounded font-bold tracking-wider">
-                v1.0 B2X
+              <span className="hidden md:inline-block text-[10px] bg-neutral-900 border border-fifa-gray-dark text-fifa-gray-light px-2 py-0.5 rounded font-bold tracking-wider ml-2">
+                v1.2 B2X
               </span>
             </div>
           </div>
@@ -152,7 +152,7 @@ export default function Header() {
           </nav>
 
           <div className="flex items-center gap-4">
-            <button onClick={() => navigate('/admin')} className="hidden md:flex text-[10px] bg-neutral-900 border border-neutral-800 hover:border-fifa-gray-dark text-fifa-gray-light px-3 py-2 rounded-lg font-black uppercase tracking-widest transition-colors">CBF</button>
+            <button onClick={() => navigate('/admin')} className="hidden md:flex text-[12px] bg-neutral-900 border border-neutral-800 hover:border-fifa-gray-dark text-fifa-gray-light px-3 py-2 rounded-lg font-black uppercase tracking-widest transition-colors">CBF</button>
 
             <div className="flex items-center gap-3 pl-4 border-l border-neutral-800">
               

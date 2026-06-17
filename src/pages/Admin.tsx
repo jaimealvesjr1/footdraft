@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
 import { type Clube, type GamePhase, type GameState, type Posicao, type Jogador } from '../types'; 
-import { doc, setDoc, deleteDoc, onSnapshot, getDocs, collection, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, onSnapshot, getDocs, collection, getDoc, updateDoc, arrayUnion, writeBatch } from 'firebase/firestore';
 import { db } from '../services/firebase'; 
 import { simularPartidaV2, escalarBot, getMentalidade } from '../services/matchEngine';
 import toast from 'react-hot-toast';
 
-type Formacao = "4-3-3" | "4-4-2" | "3-5-2" | "4-5-1";
+type Formacao = "4-3-3" | "3-4-3" | "4-4-2" | "3-5-2" | "4-5-1" | "5-4-1";
 const REGRAS_FORMACAO: Record<Formacao, { DEF: number; MEI: number; ATA: number }> = {
   "4-3-3": { DEF: 4, MEI: 3, ATA: 3 },
+  "3-4-3": { DEF: 3, MEI: 4, ATA: 3 },
   "4-4-2": { DEF: 4, MEI: 4, ATA: 2 },
   "3-5-2": { DEF: 3, MEI: 5, ATA: 2 },
   "4-5-1": { DEF: 4, MEI: 5, ATA: 1 },
+  "5-4-1": { DEF: 5, MEI: 4, ATA: 1 }
 };
 
 const confirmarAcao = (mensagem: string): Promise<boolean> => {
@@ -41,10 +43,78 @@ export default function Admin() {
   
   const [clubeEmEdicao, setClubeEmEdicao] = useState<Clube | null>(null);
   const [salvando, setSalvando] = useState(false);
-  const [tamanhoCampeonato, setTamanhoCampeonato] = useState<number>(20);
+  
+  // CONFIGURAÇÕES DO NOVO CAMPEONATO
   const [nomeCampeonato, setNomeCampeonato] = useState<string>('');
+  const [formatoTorneio, setFormatoTorneio] = useState<'LIGA' | 'COPA'>('LIGA');
+  const [tipoTurno, setTipoTurno] = useState<'IDA_VOLTA' | 'IDA'>('IDA_VOLTA');
+  
+  // NOVOS ESTADOS: Quantidade manual de vagas configuradas pelo Admin
+  const [zona1Nome, setZona1Nome] = useState<string>('Libertadores');
+  const [zona1Vagas, setZona1Vagas] = useState<number>(4);
+  
+  const [zona2Nome, setZona2Nome] = useState<string>('Pré-Libertadores');
+  const [zona2Vagas, setZona2Vagas] = useState<number>(2);
+  
+  const [zona3Nome, setZona3Nome] = useState<string>('Sul-Americana');
+  const [zona3Vagas, setZona3Vagas] = useState<number>(6);
+  
+  const [zona4Nome, setZona4Nome] = useState<string>('Rebaixamento');
+  const [zona4Vagas, setZona4Vagas] = useState<number>(4);
+  
+  // LISTAS DE SELEÇÃO MANUAL
+  const [timesDisponiveis, setTimesDisponiveis] = useState<{ id: string; nome: string; isUser: boolean }[]>([]);
+  const [timesSelecionados, setTimesSelecionados] = useState<{ id: string; nome: string; isUser: boolean }[]>([]);
+  const [filtroDisponiveis, setFiltroDisponiveis] = useState<'TODOS' | 'HUMANOS' | 'BOTS'>('HUMANOS'); // <--- NOVO AQUI
   
   const [jogadorDesistenteUid, setJogadorDesistenteUid] = useState<string>('');
+  
+  // NAVEGAÇÃO DE ABAS
+  const [abaAtiva, setAbaAtiva] = useState<'TORNEIO' | 'CLUBES'>('TORNEIO');
+
+  // EFEITO: Carrega todos os times do banco para o configurador assim que a tela abre
+  useEffect(() => {
+    const carregarTimesParaSelecao = async () => {
+      const usersSnap = await getDocs(collection(db, "usuarios"));
+      const humanosInscritos: { id: string; nome: string; isUser: boolean }[] = [];
+      const humanosEsperando: { id: string; nome: string; isUser: boolean }[] = [];
+      
+      usersSnap.forEach(d => {
+        const data = d.data();
+        // Apenas considera usuários que já criaram o nome do time
+        if (data.nomeTime) {
+          const timeFormatado = { id: d.id, nome: String(data.nomeTime), isUser: true };
+          if (data.inscrito) humanosInscritos.push(timeFormatado);
+          else humanosEsperando.push(timeFormatado);
+        }
+      });
+
+      const botsSnap = await getDocs(collection(db, "clubes"));
+      const bots: { id: string; nome: string; isUser: boolean }[] = [];
+      botsSnap.forEach(d => {
+        const data = d.data();
+        // Garante que o Bot tem pelo menos 11 jogadores para não quebrar o jogo
+        if (data.elenco && data.elenco.length >= 11) {
+          bots.push({ id: d.id, nome: `${data.nome || ''} ${data.ano || ''}`.trim(), isUser: false });
+        }
+      });
+
+      // Coloca os inscritos de um lado, e mistura os humanos em espera com os bots disponíveis do outro
+      setTimesSelecionados(humanosInscritos);
+      setTimesDisponiveis([...humanosEsperando, ...bots]);
+    };
+    carregarTimesParaSelecao();
+  }, []);
+
+  const adicionarTimeAoTorneio = (time: any) => {
+    setTimesDisponiveis(prev => prev.filter(t => t.id !== time.id));
+    setTimesSelecionados(prev => [...prev, time]);
+  };
+
+  const removerTimeDoTorneio = (time: any) => {
+    setTimesSelecionados(prev => prev.filter(t => t.id !== time.id));
+    setTimesDisponiveis(prev => [...prev, time]);
+  };
 
   useEffect(() => {
     const unsubGame = onSnapshot(doc(db, "game", "state"), (docSnap) => {
@@ -52,7 +122,7 @@ export default function Admin() {
     });
     const unsubClubes = onSnapshot(collection(db, "clubes"), (snapshot) => {
       const lista: Clube[] = [];
-      snapshot.forEach(doc => lista.push(doc.data() as Clube));
+      snapshot.forEach(doc => lista.push({id: doc.id, ...doc.data()} as Clube));
       setClubesSalvos(lista);
     });
     return () => { unsubGame(); unsubClubes(); };
@@ -63,6 +133,14 @@ export default function Admin() {
     if (confirmado) {
       await setDoc(doc(db, "game", "state"), { phase: novaFase }, { merge: true });
       toast.success(`Fase alterada para ${novaFase}`);
+    }
+  };
+
+  const encerrarCampeonatoForcado = async () => {
+    const confirmado = await confirmarAcao("Deseja realmente encerrar este campeonato IMEDIATAMENTE?");
+    if (confirmado) {
+      await updateDoc(doc(db, "game", "state"), { phase: 'FINISHED' });
+      toast.success("O campeonato foi encerrado à força!");
     }
   };
 
@@ -87,126 +165,80 @@ export default function Admin() {
     } catch (error) { toast.error("Erro ao iniciar a Pré-Temporada."); }
   };
 
-  const termoLimpo = termoBusca.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-');
-  const nomeLimpo = termoBusca.replace(/\d+/g, '').trim();
-  const anoLimpo = termoBusca.replace(/\D/g, '') || new Date().getFullYear();
-
-  const promptParaIA = termoBusca ? `Você é um gerador de dados estrito. Retorne APENAS um objeto JSON válido. É EXTREMAMENTE PROIBIDO o uso de blocos de código markdown (como \`\`\`json). Não escreva introduções, retorne o JSON cru.
-Gere um elenco completo (18 a 22 jogadores) do time: "${termoBusca}".
-REGRAS:
-1) A propriedade 'posicao' DEVE conter EXATAMENTE E APENAS uma destas 4 opções: "GOL", "DEF", "MEI" ou "ATA". Converta laterais e zagueiros para "DEF", e volantes para "MEI".
-2) OBRIGATÓRIO incluir pelo menos 2 jogadores com a posição "GOL" (goleiros).
-3) O 'overall' deve ser realista (entre 60 e 95).
-Siga ESTRITAMENTE esta estrutura:
-{
-  "id": "${termoLimpo}",
-  "nome": "${nomeLimpo}",
-  "ano": ${anoLimpo},
-  "elenco": [
-    { "id": "${termoLimpo}-nomedojogador", "nome": "Nome do Jogador", "posicao": "GOL", "clubeHistorico": "${termoBusca}", "overall": 85, "statusFisico": { "cansaco": 1, "lesionado": false, "suspenso": false }, "temporadasNoClube": 0 }
-  ]
-}` : '';
-
-  const carregarJson = () => {
-    try {
-      setErroJson(''); const obj = JSON.parse(jsonImportado) as Clube;
-      if (!obj.elenco) throw new Error('O JSON não possui a propriedade "elenco".');
-      setClubeEmEdicao(obj); 
-    } catch (error) { setErroJson('Erro ao ler o JSON: ' + (error as Error).message); }
-  };
-
-  const handleEditJogador = (idJogador: string, campo: string, valor: any) => {
-    setClubeEmEdicao(prev => {
-      if (!prev) return prev;
-      return { ...prev, elenco: prev.elenco.map(j => j.id === idJogador ? { ...j, [campo]: valor } : j) };
-    });
-  };
-
-  const salvarClube = async () => {
-    if (!clubeEmEdicao) return;
-    
-    // TRAVA DE SEGURANÇA: Verifica integridade mínima do elenco
-    const temGoleiro = clubeEmEdicao.elenco.some(j => j.posicao === 'GOL');
-    if (clubeEmEdicao.elenco.length < 11 || !temGoleiro) {
-      toast.error("O time precisa ter pelo menos 11 jogadores e 1 Goleiro para não quebrar o motor do jogo!");
-      return;
-    }
-
-    // AVISO INTELIGENTE: Verifica se o time editado já está no campeonato rodando
-    const isTimeEmCampo = gameState?.teams?.some(t => t.id === clubeEmEdicao.id && !t.isUser);
-    if (isTimeEmCampo && gameState?.phase !== 'SETUP') {
-      const confirmado = await confirmarAcao(`O time ${clubeEmEdicao.nome} está jogando o campeonato atual! Atualizar o elenco afetará os próximos jogos dele. Continuar?`);
-      if (!confirmado) return;
-    }
-
-    setSalvando(true);
-    try {
-      const nomeCompletoClube = `${clubeEmEdicao.nome} ${clubeEmEdicao.ano}`.trim();
-      const clubeSanitizado = {
-        ...clubeEmEdicao,
-        elenco: clubeEmEdicao.elenco.map(jogador => ({
-          ...jogador, 
-          clubeHistorico: nomeCompletoClube, 
-          statusFisico: { cansaco: 1, lesionado: false, suspenso: false }
-        }))
-      };
-      
-      await setDoc(doc(db, "clubes", clubeSanitizado.id), clubeSanitizado);
-      toast.success(`O time ${clubeSanitizado.nome} foi salvo no banco de dados!`);
-      
-      setClubeEmEdicao(null); 
-      setJsonImportado(''); 
-      setTermoBusca('');
-    } catch (error) { 
-      toast.error("Erro ao salvar clube."); 
-    } finally { 
-      setSalvando(false); 
-    }
-  };
-
-  const excluirClube = async (idClube: string) => {
-    const confirmado = await confirmarAcao("ATENÇÃO! Excluir este time do banco de dados definitivamente?");
-    if (confirmado) {
-      await deleteDoc(doc(db, "clubes", idClube));
-      toast.success("Clube excluído com sucesso.");
-    }
-  };
-
   const gerarCampeonato = async () => {
     try {
-      const usersSnap = await getDocs(collection(db, "usuarios"));
-      const times: { id: string; nome: string; isUser: boolean }[] = [];
-      usersSnap.forEach((docSnap) => {
-        const dados = docSnap.data();
-        if (dados.nomeTime && dados.inscrito) times.push({ id: docSnap.id, nome: String(dados.nomeTime), isUser: true });
-      });
-
-      const botsSnap = await getDocs(collection(db, "clubes"));
-      const clubesBots: { id: string; nome: string; isUser: boolean }[] = [];
-      botsSnap.forEach(d => {
-        const dados = d.data();
-        if (dados.elenco && Array.isArray(dados.elenco) && dados.elenco.length >= 11) {
-          clubesBots.push({ id: d.id, nome: `${dados.nome || ''} ${dados.ano || ''}`.trim(), isUser: false });
-        }
-      });
-      clubesBots.sort(() => Math.random() - 0.5);
-
-      const TOTAL_TIMES = tamanhoCampeonato;
-      while (times.length < TOTAL_TIMES && clubesBots.length > 0) times.push(clubesBots.pop()!);
-
-      if (times.length < TOTAL_TIMES) {
-        toast.error(`Tem apenas ${times.length} times disponíveis. Precisa de ${TOTAL_TIMES}. Adicione mais clubes!`);
-        return; 
+      if (timesSelecionados.length < 4) {
+        toast.error("Selecione pelo menos 4 times para formar um campeonato!");
+        return;
+      }
+      if (timesSelecionados.length % 2 !== 0) {
+        toast.error("O número de times deve ser par para não haver sobras nas rodadas!");
+        return;
       }
 
-      times.sort(() => Math.random() - 0.5);
+      const times = [...timesSelecionados].sort(() => Math.random() - 0.5);
+      const TOTAL_TIMES = times.length;
+      const nomeCamp = nomeCampeonato || `Temporada ${new Date().getFullYear()}`;
 
+      const masterCalendar: any[] = []; 
+
+      // LÓGICA DE COPA (MATA-MATA)
+      if (formatoTorneio === 'COPA') {
+        const chavesPerfeitas = [4, 8, 16, 32];
+        if (!chavesPerfeitas.includes(TOTAL_TIMES)) {
+          toast.error("Para Copas (Mata-Mata), selecione uma quantidade de times que feche uma chave perfeita (4, 8, 16 ou 32)!");
+          return;
+        }
+
+        const faseNome = TOTAL_TIMES === 4 ? "Semifinal" : TOTAL_TIMES === 8 ? "Quartas de Final" : "Oitavas de Final";
+        const jogosCopa = [];
+        
+        // Emparelha os times sorteados de 2 em 2
+        for (let i = 0; i < TOTAL_TIMES; i += 2) {
+          jogosCopa.push({
+            homeId: times[i].id, awayId: times[i+1].id,
+            homeScore: null, awayScore: null, relatorio: []
+          });
+        }
+
+        if (tipoTurno === 'IDA') {
+          masterCalendar.push({
+            tipo: 'COPA', titulo: `${nomeCamp} - ${faseNome}`,
+            jogos: jogosCopa, decidirCopa: true
+          });
+        } else {
+          masterCalendar.push({
+            tipo: 'COPA', titulo: `${nomeCamp} - ${faseNome} (Ida)`,
+            jogos: jogosCopa, decidirCopa: false
+          });
+          const jogosVolta = jogosCopa.map(j => ({
+            homeId: j.awayId, awayId: j.homeId, homeScore: null, awayScore: null, relatorio: []
+          }));
+          masterCalendar.push({
+            tipo: 'COPA', titulo: `${nomeCamp} - ${faseNome} (Volta)`,
+            jogos: jogosVolta, decidirCopa: true
+          });
+        }
+
+        const standings = times.map(t => ({ id: t.id, pts: 0, j: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0 }));
+        await setDoc(doc(db, "game", "state"), {
+          teams: times, standings: standings, schedule: masterCalendar,
+          currentRound: 1, phase: 'CHAMPIONSHIP', totalTeams: TOTAL_TIMES, nomeCampeonato: nomeCamp,
+          regrasClassificacao: { zona1: { nome: zona1Nome, vagas: zona1Vagas }, zona2: { nome: zona2Nome, vagas: zona2Vagas }, zona3: { nome: zona3Nome, vagas: zona3Vagas }, zona4: { nome: zona4Nome, vagas: zona4Vagas } }
+        });
+        toast.success(`Copa configurada: ${TOTAL_TIMES} times emparelhados no Mata-Mata!`);
+        return;
+      }
+
+      // LÓGICA DE LIGA ANTERIOR (Mantenha o bloco de código da Liga intacto abaixo)
       const standings = times.map(t => ({ id: t.id, pts: 0, j: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0 }));
       const numRodadasIda = TOTAL_TIMES - 1;
       const metade = TOTAL_TIMES / 2;
-      const scheduleIda: { jogos: any[] }[] = []; 
+
       let idsRotacao = times.map(t => t.id);
 
+      // 1. Gerar LIGA (1º Turno)
+      const scheduleIda: any[] = [];
       for (let rodada = 0; rodada < numRodadasIda; rodada++) {
         const jogosDaRodada = [];
         for (let i = 0; i < metade; i++) {
@@ -218,30 +250,59 @@ Siga ESTRITAMENTE esta estrutura:
             jogosDaRodada.push({ homeId: casa, awayId: fora, homeScore: null, awayScore: null, relatorio: [] });
           }
         }
-        scheduleIda.push({ jogos: jogosDaRodada }); 
+        
+        masterCalendar.push({
+          tipo: 'LIGA',
+          titulo: `${nomeCamp} - Rodada ${rodada + 1}`,
+          jogos: jogosDaRodada
+        });
+        
+        scheduleIda.push(jogosDaRodada); // Guardado temporariamente para espelhar na Volta
+        
         const ultimoId = idsRotacao.pop();
         if (ultimoId) idsRotacao.splice(1, 0, ultimoId);
       }
 
-      const scheduleVolta = scheduleIda.map(rodada => {
-        return {
-          jogos: rodada.jogos.map(jogo => ({
-            homeId: jogo.awayId, awayId: jogo.homeId, homeScore: null, awayScore: null, relatorio: []
-          }))
+      // 2. Inserir a Janela de Transferências no Meio e o Returno
+      if (tipoTurno === 'IDA_VOLTA') {
+        
+        // Insere o evento de Mercado de Transferências no Calendário
+        masterCalendar.push({
+          tipo: 'TRANSFERENCIAS',
+          titulo: `Janela de Transferências (Meio de Temporada)`,
+          jogos: []
+        });
+
+        // Gera as Rodadas de Volta invertendo os mandos de campo da Ida
+        scheduleIda.forEach((jogosIda, index) => {
+           const jogosVolta = jogosIda.map((jogo: any) => ({
+             homeId: jogo.awayId, awayId: jogo.homeId, homeScore: null, awayScore: null, relatorio: []
+           }));
+           
+           masterCalendar.push({
+             tipo: 'LIGA',
+             titulo: `${nomeCamp} - Rodada ${numRodadasIda + index + 1} (Returno)`,
+             jogos: jogosVolta
+           });
+        });
+      }
+
+      await updateDoc(doc(db, "game", "state"), {
+        teams: times, standings: standings, schedule: masterCalendar,
+        currentRound: 1, phase: 'FIRST_HALF',
+        totalTeams: TOTAL_TIMES,
+        nomeCampeonato: nomeCamp,
+        // NOVO: Salva as regras dinâmicas de classificação
+        regrasClassificacao: {
+          zona1: { nome: zona1Nome, vagas: zona1Vagas },
+          zona2: { nome: zona2Nome, vagas: zona2Vagas },
+          zona3: { nome: zona3Nome, vagas: zona3Vagas },
+          zona4: { nome: zona4Nome, vagas: zona4Vagas }
         }
       });
 
-      const scheduleCompleto = [...scheduleIda, ...scheduleVolta];
-
-      await updateDoc(doc(db, "game", "state"), {
-        teams: times, standings: standings, schedule: scheduleCompleto,
-        currentRound: 1, phase: 'FIRST_HALF',
-        totalTeams: TOTAL_TIMES,
-        nomeCampeonato: nomeCampeonato || `Temporada ${new Date().getFullYear()}`
-      });
-
-      toast.success(`Campeonato Gerado com Sucesso! (${(TOTAL_TIMES - 1) * 2} rodadas)`);
-    } catch (error) { toast.error("Erro ao gerar tabela."); }
+      toast.success(`Torneio configurado: ${TOTAL_TIMES} times e ${masterCalendar.length} eventos agendados!`);
+    } catch (error) { toast.error("Erro ao gerar a tabela e calendário."); }
   };
 
   const simularRodadaAtual = async () => {
@@ -249,13 +310,64 @@ Siga ESTRITAMENTE esta estrutura:
     setSalvando(true);
 
     try {
-      const rodadaIndex = gameState.schedule.findIndex((r: any) => r.jogos[0]?.homeScore == null);
-      if (rodadaIndex === -1) throw new Error("Campeonato já terminou!");
+      const rodadaIndex = gameState.currentRound - 1;
+      const eventoAtual = gameState.schedule[rodadaIndex];
       
-      const rodadaAtualData = gameState.schedule[rodadaIndex];
-      const rodadaVerdadeira = rodadaIndex + 1;
+      if (!eventoAtual) throw new Error("O Calendário Mestre já foi concluído!");
       
-      const jogos = rodadaAtualData.jogos;
+      const rodadaVerdadeira = gameState.currentRound;
+      const isUltimoEvento = rodadaVerdadeira === gameState.schedule.length;
+      
+      const batch = writeBatch(db);
+
+      // ==========================================
+      // EVENTO 1: JANELA DE TRANSFERÊNCIAS
+      // ==========================================
+      if (eventoAtual.tipo === 'TRANSFERENCIAS') {
+        const usuariosNoJogo = (gameState.teams || []).filter(t => t.isUser).map(t => t.id);
+        const tabela = [...gameState.standings];
+        
+        // 1. Distribuir Cotas de Troca
+        tabela.forEach((time, index) => {
+          if (usuariosNoJogo.includes(time.id)) {
+            let totalTrocas = index <= 3 ? 6 : index <= 7 ? 4 : 2;
+            batch.update(doc(db, "usuarios", time.id), { trocasPermitidas: totalTrocas, trocasRealizadas: 0, jogadoresDispensados: [] });
+          }
+        });
+        
+        // 2. Curar todo mundo e zerar cansaço (A pausa da Janela serve como Férias)
+        const resetPromessas = (gameState.teams || []).map(async (t) => {
+           const timeRef = doc(db, t.isUser ? "usuarios" : "clubes", t.id);
+           const timeSnap = await getDoc(timeRef);
+           if(timeSnap.exists()){
+              const elenco = timeSnap.data().elenco || [];
+              const novoElenco = elenco.map((j:any) => ({...j, statusFisico: {cansaco: 1, lesionado: false, suspenso: false, amarelos: 0}}));
+              batch.update(timeRef, { elenco: novoElenco });
+           }
+        });
+        await Promise.all(resetPromessas);
+
+        // 3. Ordem do Draft (Os piores escolhem primeiro)
+        const ordemDeEscolha = [...tabela].reverse().filter(time => usuariosNoJogo.includes(time.id)).map(time => time.id);
+        
+        batch.update(doc(db, "game", "state"), { 
+          phase: 'TRANSFER_WINDOW', 
+          draftOrder: ordemDeEscolha, 
+          draftTurnUid: ordemDeEscolha[0] || null, 
+          playersReady: [],
+          currentRound: rodadaVerdadeira + 1 // Avança o calendário para não repetir a janela
+        });
+        
+        await batch.commit();
+        toast.success(`Aberto: ${eventoAtual.titulo}!`);
+        setSalvando(false);
+        return;
+      }
+
+      // ==========================================
+      // EVENTO 2: PARTIDAS (LIGA / COPA)
+      // ==========================================
+      const jogos = eventoAtual.jogos;
       let novosStandings = [...gameState.standings];
 
       const validarTitularesHumanos = (titularesIds: string[], elenco: Jogador[], nomeTime: string) => {
@@ -271,11 +383,6 @@ Siga ESTRITAMENTE esta estrutura:
         if (!temGoleiro) throw new Error(`O time ${nomeTime} tentou entrar em campo sem um goleiro titular!`);
         return time;
       };
-
-      const totalTeams = (gameState as any).totalTeams || 20;
-      const midSeason = totalTeams - 1;
-      const endSeason = (totalTeams - 1) * 2;
-      const resetarCansaco = rodadaVerdadeira === midSeason;
 
       for (let jogo of jogos) {
         const isHomeUser = (gameState.teams || []).find(t => t.id === jogo.homeId)?.isUser || false;
@@ -333,7 +440,8 @@ Siga ESTRITAMENTE esta estrutura:
             const eventosDesteJogador = resultado.relatorio.filter((e: any) => e.jogadorId === jogador.id && e.time === (isCasa ? 'CASA' : 'FORA'));
 
             if (jogouDeVerdade) {
-              if (!status.lesionado) status.cansaco = resetarCansaco ? 1 : Math.min(5, status.cansaco + 1);
+              // Aumenta o cansaço
+              if (!status.lesionado) status.cansaco = Math.min(5, status.cansaco + 1); 
               if (eventosDesteJogador.some((e: any) => e.tipo === 'LESAO')) status.lesionado = true;
               
               const amarelosNaPartida = eventosDesteJogador.filter((e: any) => e.tipo === 'CARTAO_AMARELO').length;
@@ -346,6 +454,7 @@ Siga ESTRITAMENTE esta estrutura:
                 status.amarelos = 0;
               }
             } else {
+              // Descansa quem não jogou
               if (jogador.statusFisico?.lesionado === true) {
                 status.cansaco = Math.max(1, status.cansaco - 1);
                 if (status.cansaco === 1) status.lesionado = false;
@@ -355,7 +464,6 @@ Siga ESTRITAMENTE esta estrutura:
               status.amarelos = 0;
             }
 
-            if (resetarCansaco) { status.cansaco = 1; status.lesionado = false; }
             return { ...jogador, statusFisico: status };
           });
         };
@@ -363,37 +471,118 @@ Siga ESTRITAMENTE esta estrutura:
         const finalHomeRoster = processarElenco(homeElenco, homeTitularesIds, true);
         const finalAwayRoster = processarElenco(awayElenco, awayTitularesIds, false);
 
-        await updateDoc(doc(db, isHomeUser ? "usuarios" : "clubes", jogo.homeId), { elenco: finalHomeRoster });
-        await updateDoc(doc(db, isAwayUser ? "usuarios" : "clubes", jogo.awayId), { elenco: finalAwayRoster });
+        batch.update(doc(db, isHomeUser ? "usuarios" : "clubes", jogo.homeId), { elenco: finalHomeRoster });
+        batch.update(doc(db, isAwayUser ? "usuarios" : "clubes", jogo.awayId), { elenco: finalAwayRoster });
 
-        const updateStanding = (id: string, gf: number, gc: number) => {
-          let t = novosStandings.find(s => s.id === id);
-          if (t) {
-            t.j += 1; t.gp += gf; t.gc += gc; t.sg = t.gp - t.gc;
-            if (gf > gc) { t.pts += 3; t.v += 1; } else if (gf === gc) { t.pts += 1; t.e += 1; } else { t.d += 1; }
-          }
-        };
-        updateStanding(jogo.homeId, resultado.golsCasa, resultado.golsFora);
-        updateStanding(jogo.awayId, resultado.golsFora, resultado.golsCasa);
+        if (eventoAtual.tipo === 'LIGA') {
+          const updateStanding = (id: string, gf: number, gc: number) => {
+            let t = novosStandings.find(s => s.id === id);
+            if (t) {
+              t.j += 1; t.gp += gf; t.gc += gc; t.sg = t.gp - t.gc;
+              if (gf > gc) { t.pts += 3; t.v += 1; } else if (gf === gc) { t.pts += 1; t.e += 1; } else { t.d += 1; }
+            }
+          };
+          updateStanding(jogo.homeId, resultado.golsCasa, resultado.golsFora);
+          updateStanding(jogo.awayId, resultado.golsFora, resultado.golsCasa);
+        }
       }
 
-      novosStandings.sort((a, b) => b.pts !== a.pts ? b.pts - a.pts : (b.sg !== a.sg ? b.sg - a.sg : b.gp - a.gp));
+      let updatedSchedule = [...gameState.schedule];
+      updatedSchedule[rodadaIndex] = { ...eventoAtual, jogos: jogos };
 
-      let updatedSchedule = gameState.schedule.map((rodada, index) => index === rodadaIndex ? { jogos: jogos } : rodada);
-      
+      if (eventoAtual.tipo === 'LIGA') {
+        novosStandings.sort((a, b) => b.pts !== a.pts ? b.pts - a.pts : (b.sg !== a.sg ? b.sg - a.sg : b.gp - a.gp));
+      }
+
+      // NOVO: INTELIGÊNCIA MATA-MATA DA COPA
       let proximaFase = gameState.phase;
-      let mensagemAlert = "Rodada Simulada com Sucesso!";
+      let mensagemAlert = `${eventoAtual.titulo} concluída!`;
 
-      if (rodadaVerdadeira === midSeason) {
-        mensagemAlert = "FIM DO 1º TURNO! Após a TV, clique no botão 'Janela de Transf.'";
-      } else if (rodadaVerdadeira === endSeason) {
+      if (eventoAtual.tipo === 'COPA' && (eventoAtual as any).decidirCopa) {
+        const vencedores: string[] = [];
+        
+        if (tipoTurno === 'IDA') {
+          jogos.forEach(jogo => {
+            const nomeH = (gameState.teams || []).find(t => t.id === jogo.homeId)?.nome || "Mandante";
+            const nomeA = (gameState.teams || []).find(t => t.id === jogo.awayId)?.nome || "Visitante";
+            if ((jogo.homeScore ?? 0) > (jogo.awayScore ?? 0)) vencedores.push(jogo.homeId);
+            else if ((jogo.awayScore ?? 0) > (jogo.homeScore ?? 0)) vencedores.push(jogo.awayId);
+            else {
+              const ganhaHome = Math.random() < 0.5;
+              vencedores.push(ganhaHome ? jogo.homeId : jogo.awayId);
+              jogo.relatorio.push({
+                minuto: 120, tipo: 'GOL', time: ganhaHome ? 'CASA' : 'FORA',
+                texto: `DECISÃO NOS PÊNALTIS! Após empate por ${jogo.homeScore}x${jogo.awayScore}, o ${ganhaHome ? nomeH : nomeA} vence as penalidades máximas e avança de fase!`
+              });
+            }
+          });
+        } else {
+          const rodadaIdaData = gameState.schedule[rodadaIndex - 1];
+          jogos.forEach(jogoVolta => {
+            const jogoIda = rodadaIdaData.jogos.find(j => j.homeId === jogoVolta.awayId && j.awayId === jogoVolta.homeId);
+            const golsHomeTotal = (jogoVolta.homeScore ?? 0) + (jogoIda?.awayScore ?? 0);
+            const golsAwayTotal = (jogoVolta.awayScore ?? 0) + (jogoIda?.homeScore ?? 0);
+            
+            const nomeH = (gameState.teams || []).find(t => t.id === jogoVolta.homeId)?.nome || "Mandante";
+            const nomeA = (gameState.teams || []).find(t => t.id === jogoVolta.awayId)?.nome || "Visitante";
+
+            if (golsHomeTotal > golsAwayTotal) vencedores.push(jogoVolta.homeId);
+            else if (golsAwayTotal > golsHomeTotal) vencedores.push(jogoVolta.awayId);
+            else {
+              const ganhaHome = Math.random() < 0.5;
+              vencedores.push(ganhaHome ? jogoVolta.homeId : jogoVolta.awayId);
+              jogoVolta.relatorio.push({
+                minuto: 120, tipo: 'GOL', time: ganhaHome ? 'CASA' : 'FORA',
+                texto: `DECISÃO NOS PÊNALTIS! Após empate agregado de ${golsHomeTotal}x${golsAwayTotal}, o ${ganhaHome ? nomeH : nomeA} garante a vaga nas penalidades máximas!`
+              });
+            }
+          });
+        }
+
+        if (vencedores.length === 1) {
+          proximaFase = 'FINISHED';
+          mensagemAlert = `GRANDE FINAL CONCLUÍDA! O campeão da Copa foi coroado!`;
+        } else {
+          // Sorteia os confrontos da próxima fase com os vencedores
+          const proximosJogosCopa = [];
+          for (let i = 0; i < vencedores.length; i += 2) {
+            proximosJogosCopa.push({
+              homeId: vencedores[i], awayId: vencedores[i+1],
+              homeScore: null, awayScore: null, relatorio: []
+            });
+          }
+          const proximaFaseNome = vencedores.length === 2 ? "Grande Final" : vencedores.length === 4 ? "Semifinal" : "Quartas de Final";
+          const nomeCamp = (gameState as any).nomeCampeonato || "Copa";
+
+          if (tipoTurno === 'IDA') {
+            updatedSchedule.splice(rodadaIndex + 1, 0, {
+              tipo: 'COPA', titulo: `${nomeCamp} - ${proximaFaseNome}`,
+              jogos: proximosJogosCopa, decidirCopa: true
+            } as any);
+          } else {
+            updatedSchedule.splice(rodadaIndex + 1, 0, {
+              tipo: 'COPA', titulo: `${nomeCamp} - ${proximaFaseNome} (Ida)`,
+              jogos: proximosJogosCopa, decidirCopa: false
+            } as any);
+            const proximosVolta = proximosJogosCopa.map(j => ({
+              homeId: j.awayId, awayId: j.homeId, homeScore: null, awayScore: null, relatorio: []
+            }));
+            updatedSchedule.splice(rodadaIndex + 2, 0, {
+              tipo: 'COPA', titulo: `${nomeCamp} - ${proximaFaseNome} (Volta)`,
+              jogos: proximosVolta, decidirCopa: true
+            } as any);
+          }
+        }
+      }
+
+      if (isUltimoEvento) {
         proximaFase = 'FINISHED'; 
-        mensagemAlert = "CAMPEONATO ENCERRADO! Histórico da temporada foi salvo.";
+        mensagemAlert = "CALENDÁRIO ENCERRADO! O histórico da temporada foi arquivado.";
         
         const dataAtual = new Date().toLocaleDateString('pt-BR');
         const nomeCamp = (gameState as any).nomeCampeonato || "Campeonato Brasileiro";
 
-        const promessasHistorico = novosStandings.map((timeDaTabela, index) => {
+        novosStandings.forEach((timeDaTabela, index) => {
              const isHumano = (gameState.teams || []).find((t:any) => t.id === timeDaTabela.id)?.isUser;
              if (isHumano) {
                  const historicoData = {
@@ -405,25 +594,26 @@ Siga ESTRITAMENTE esta estrutura:
                      saldo: timeDaTabela.sg,
                      campeao: index === 0
                  };
-                 return updateDoc(doc(db, "usuarios", timeDaTabela.id), {
+                 batch.update(doc(db, "usuarios", timeDaTabela.id), {
                      historicoCampanhas: arrayUnion(historicoData),
                      inscrito: false 
                  });
              }
-             return Promise.resolve();
         });
-        await Promise.all(promessasHistorico);
+      } else if (updatedSchedule[rodadaIndex + 1]?.tipo === 'LIGA') {
+         if (proximaFase === 'TRANSFER_WINDOW') proximaFase = 'SECOND_HALF'; 
       }
 
-      await updateDoc(doc(db, "game", "state"), {
+      batch.update(doc(db, "game", "state"), {
         schedule: updatedSchedule, standings: novosStandings, currentRound: rodadaVerdadeira + 1,
         phase: proximaFase, playersReady: [], playersInLive: []
       });
 
+      await batch.commit();
       toast.success(mensagemAlert);
     } catch (error) {
       console.error("Erro na Simulação:", error);
-      toast.error(`SIMULAÇÃO ABORTADA: ${(error as Error).message}`);
+      toast.error(`ERRO: ${(error as Error).message}`);
     } finally {
       setSalvando(false);
     }
@@ -561,9 +751,6 @@ Siga ESTRITAMENTE esta estrutura:
     }
   };
 
-  // ==========================================
-  // NOVA FUNÇÃO: DEVOLVER JOGADOR À FILA (AFK)
-  // ==========================================
   const retornarJogadorAFK = async () => {
     if (!jogadorDesistenteUid) {
       toast.error("Selecione um técnico na lista acima primeiro!");
@@ -585,11 +772,9 @@ Siga ESTRITAMENTE esta estrutura:
 
     setSalvando(true);
     try {
-      // Adiciona o jogador ao final da fila existente
       const novaFila = [...filaAtual, jogadorDesistenteUid];
       const updates: any = { draftOrder: novaFila };
 
-      // Se a fila estava vazia (ninguém jogando e a fase paralisada), ele se torna o dono do turno atual
       if (filaAtual.length === 0) {
          updates.draftTurnUid = jogadorDesistenteUid;
       }
@@ -602,42 +787,6 @@ Siga ESTRITAMENTE esta estrutura:
     } finally {
       setSalvando(false);
     }
-  };
-
-  const iniciarJanelaTransferencias = async () => {
-    if (!gameState || !gameState.standings || !gameState.teams) return;
-    const confirmado = await confirmarAcao("📢 Abrir Janela de Transferências?");
-    if (!confirmado) return;
-    setSalvando(true);
-    try {
-      const usuariosNoJogo = gameState.teams.filter(t => t.isUser).map(t => t.id);
-      const tabela = [...gameState.standings];
-      const promessasDeAtualizacao = tabela.map((time, index) => {
-        if (!usuariosNoJogo.includes(time.id)) return Promise.resolve();
-        let totalTrocas = index <= 3 ? 6 : index <= 7 ? 4 : 2;
-        return updateDoc(doc(db, "usuarios", time.id), { trocasPermitidas: totalTrocas, trocasRealizadas: 0, jogadoresDispensados: [] });
-      });
-      await Promise.all(promessasDeAtualizacao);
-      const ordemDeEscolha = [...tabela].reverse().filter(time => usuariosNoJogo.includes(time.id)).map(time => time.id);
-      await updateDoc(doc(db, "game", "state"), { phase: 'TRANSFER_WINDOW', draftOrder: ordemDeEscolha, draftTurnUid: ordemDeEscolha[0], playersReady: [] });
-      toast.success("Janela de Transferências aberta!");
-    } catch (error) { toast.error("Erro ao processar as transferências."); } finally { setSalvando(false); }
-  };
-
-  const iniciarReturno = async () => {
-    const confirmado = await confirmarAcao("▶️ Iniciar (ou Sincronizar) o Returno?");
-    if (!confirmado) return;
-    setSalvando(true);
-    try { 
-      const indexNaoSimulada = gameState?.schedule?.findIndex((r: any) => r.jogos[0]?.homeScore == null);
-      const midSeason = ((gameState as any)?.totalTeams || 20) - 1;
-      const rodadaCorreta = (indexNaoSimulada !== undefined && indexNaoSimulada !== -1) ? indexNaoSimulada + 1 : (midSeason + 1);
-
-      await updateDoc(doc(db, "game", "state"), { 
-        phase: 'SECOND_HALF', draftTurnUid: null, draftOrder: [], currentRound: rodadaCorreta
-      }); 
-      toast.success(`Returno sincronizado! O jogo voltou para a Rodada ${rodadaCorreta}`); 
-    } catch (error) { toast.error("Erro ao iniciar returno."); } finally { setSalvando(false); }
   };
 
   const resetarPreTemporada = async () => {
@@ -666,6 +815,100 @@ Siga ESTRITAMENTE esta estrutura:
     } catch (error) { toast.error("Erro ao resetar o servidor."); } finally { setSalvando(false); }
   };
 
+  // --- LÓGICAS DE EDIÇÃO DE CLUBES ---
+  const termoLimpo = termoBusca.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-');
+  const nomeLimpo = termoBusca.replace(/\d+/g, '').trim();
+  const anoLimpo = termoBusca.replace(/\D/g, '') || new Date().getFullYear();
+
+  const promptParaIA = termoBusca ? `Você é um gerador de dados estrito. Retorne APENAS um objeto JSON válido. É EXTREMAMENTE PROIBIDO o uso de blocos de código markdown (como \`\`\`json). Não escreva introduções, retorne o JSON cru.
+Gere um elenco completo (18 a 22 jogadores) do time: "${termoBusca}".
+REGRAS:
+1) A propriedade 'posicao' DEVE conter EXATAMENTE E APENAS uma destas 4 opções: "GOL", "DEF", "MEI" ou "ATA". Converta laterais e zagueiros para "DEF", e volantes para "MEI".
+2) OBRIGATÓRIO incluir pelo menos 2 jogadores com a posição "GOL" (goleiros).
+3) O 'overall' deve ser realista (entre 60 e 95).
+Siga ESTRITAMENTE esta estrutura:
+{
+  "id": "${termoLimpo}",
+  "nome": "${nomeLimpo}",
+  "ano": ${anoLimpo},
+  "elenco": [
+    { "id": "${termoLimpo}-nomedojogador", "nome": "Nome do Jogador", "posicao": "GOL", "clubeHistorico": "${termoBusca}", "overall": 85, "statusFisico": { "cansaco": 1, "lesionado": false, "suspenso": false }, "temporadasNoClube": 0 }
+  ]
+}` : '';
+
+  const carregarJson = () => {
+    try {
+      setErroJson(''); const obj = JSON.parse(jsonImportado) as Clube;
+      if (!obj.elenco) throw new Error('O JSON não possui a propriedade "elenco".');
+      setClubeEmEdicao(obj); 
+    } catch (error) { setErroJson('Erro ao ler o JSON: ' + (error as Error).message); }
+  };
+
+  const handleEditJogador = (idJogador: string, campo: string, valor: any) => {
+    setClubeEmEdicao(prev => {
+      if (!prev) return prev;
+      return { ...prev, elenco: prev.elenco.map(j => j.id === idJogador ? { ...j, [campo]: valor } : j) };
+    });
+  };
+
+  const salvarClube = async () => {
+    if (!clubeEmEdicao) return;
+    
+    const temGoleiro = clubeEmEdicao.elenco.some(j => j.posicao === 'GOL');
+    if (clubeEmEdicao.elenco.length < 11 || !temGoleiro) {
+      toast.error("O time precisa ter pelo menos 11 jogadores e 1 Goleiro para não quebrar o motor do jogo!");
+      return;
+    }
+
+    const isTimeEmCampo = gameState?.teams?.some(t => t.id === clubeEmEdicao.id && !t.isUser);
+    if (isTimeEmCampo && gameState?.phase !== 'SETUP') {
+      const confirmado = await confirmarAcao(`O time ${clubeEmEdicao.nome} está jogando o campeonato atual! Atualizar o elenco afetará os próximos jogos dele. Continuar?`);
+      if (!confirmado) return;
+    }
+
+    setSalvando(true);
+    try {
+      const nomeCompletoClube = `${clubeEmEdicao.nome} ${clubeEmEdicao.ano}`.trim();
+      const clubeSanitizado = {
+        ...clubeEmEdicao,
+        elenco: clubeEmEdicao.elenco.map(jogador => ({
+          ...jogador, 
+          clubeHistorico: nomeCompletoClube, 
+          statusFisico: { cansaco: 1, lesionado: false, suspenso: false }
+        }))
+      };
+      
+      await setDoc(doc(db, "clubes", clubeSanitizado.id), clubeSanitizado);
+      toast.success(`O time ${clubeSanitizado.nome} foi salvo no banco de dados!`);
+      
+      // NOVO: Sincroniza o nome na memória do torneio atual para atualizar ao vivo!
+      if (isTimeEmCampo && gameState) {
+        const updatedTeams = gameState.teams?.map(t => 
+          t.id === clubeSanitizado.id ? { ...t, nome: clubeSanitizado.nome } : t
+        );
+        if (updatedTeams) {
+          await updateDoc(doc(db, "game", "state"), { teams: updatedTeams });
+        }
+      }
+
+      setClubeEmEdicao(null); 
+      setJsonImportado('');
+      setTermoBusca('');
+    } catch (error) { 
+      toast.error("Erro ao salvar clube."); 
+    } finally { 
+      setSalvando(false); 
+    }
+  };
+
+  const excluirClube = async (idClube: string) => {
+    const confirmado = await confirmarAcao("ATENÇÃO! Excluir este time do banco de dados definitivamente?");
+    if (confirmado) {
+      await deleteDoc(doc(db, "clubes", idClube));
+      toast.success("Clube excluído com sucesso.");
+    }
+  };
+
   const getClubeOvr = (elenco: Jogador[]) => {
     if (!elenco || elenco.length < 11) return 0;
     const sorted = [...elenco].sort((a, b) => b.overall - a.overall).slice(0, 11);
@@ -683,207 +926,328 @@ Siga ESTRITAMENTE esta estrutura:
     <div className="min-h-screen bg-neutral-950 text-neutral-200 p-4 sm:p-8 font-fifa">
       <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
         
-        {/* CABEÇALHO */}
-        <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl gap-4 sm:gap-6">
-          <div className="flex-1 w-full text-center md:text-left">
-            <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">Painel da <span className="text-fifa-blue">CBF</span></h1>
-            <p className="text-xs sm:text-sm text-neutral-400 mt-2 font-bold tracking-widest uppercase">
-              Fase Atual: <span className="text-fifa-green">{gameState?.phase || '...'}</span> <br className="md:hidden" /> <span className="hidden md:inline">|</span> Rodada: <span className="text-fifa-blue">{gameState?.currentRound || 0}</span>/{(gameState as any)?.totalTeams ? ((gameState as any).totalTeams - 1) * 2 : 38}
-            </p>
-            <div className="mt-4 w-full bg-neutral-950 h-2 rounded-full overflow-hidden border border-neutral-800">
-              <div className="bg-linear-to-r from-fifa-green via-fifa-blue to-fifa-red h-full transition-all duration-1000" style={{ width: `${Math.min(100, ((gameState?.currentRound || 0) / (((gameState as any)?.totalTeams || 20) - 1) * 2) * 100)}%` }}></div>
-            </div>
-          </div>
-          
-          <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
-            <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 text-center flex-1 md:min-w-40 flex flex-col justify-center">
-              <p className="text-[10px] text-neutral-500 uppercase font-black">Escalações Prontas</p>
-              <p className="text-xl sm:text-2xl font-black text-fifa-green leading-none my-1">{timesProntos.length} <span className="text-sm text-neutral-600">/ {totalHumanos}</span></p>
-              <div className="flex flex-wrap gap-1 justify-center mt-1">
-                {timesProntos.map(t => <span key={t.id} className="text-[8px] bg-fifa-green/10 text-fifa-green px-1.5 py-0.5 rounded border border-fifa-green/30">{t.nome}</span>)}
-              </div>
-            </div>
-
-            <div className={`bg-neutral-950 p-4 rounded-lg border text-center flex-1 md:min-w-40 transition-all flex flex-col justify-center ${podeDarApito ? 'border-yellow-500/50 shadow-[0_0_15px_rgba(234,179,8,0.2)]' : 'border-neutral-800'}`}>
-              <p className="text-[10px] text-neutral-500 uppercase font-black">Na TV (Estádio)</p>
-              <p className={`text-xl sm:text-2xl font-black leading-none my-1 ${podeDarApito ? 'text-yellow-500 animate-pulse' : 'text-neutral-400'}`}>
-                {timesNaTv.length} <span className="text-sm text-neutral-600">/ {totalHumanos}</span>
+        {/* CABEÇALHO DO ADMIN E NAVEGAÇÃO DE ABAS */}
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col md:flex-row justify-between items-center bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl gap-4 sm:gap-6">
+            <div className="flex-1 w-full text-center md:text-left">
+              <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">Painel da <span className="text-fifa-blue">CBF</span></h1>
+              <p className="text-xs sm:text-sm text-neutral-400 mt-2 font-bold tracking-widest uppercase">
+                Fase Atual: <span className="text-fifa-green">{gameState?.phase || '...'}</span> <br className="md:hidden" /> <span className="hidden md:inline">|</span> Rodada: <span className="text-fifa-blue">{gameState?.currentRound || 0}</span>/{(gameState as any)?.totalTeams ? ((gameState as any).totalTeams - 1) * 2 : 38}
               </p>
-              <div className="flex flex-wrap gap-1 justify-center mt-1">
-                {timesNaTv.map(t => <span key={t.id} className="text-[8px] bg-yellow-500/10 text-yellow-500 px-1.5 py-0.5 rounded border border-yellow-500/30">{t.nome}</span>)}
+              <div className="mt-4 w-full bg-neutral-950 h-2 rounded-full overflow-hidden border border-neutral-800">
+                <div className="bg-linear-to-r from-fifa-green via-fifa-blue to-fifa-red h-full transition-all duration-1000" style={{ width: `${Math.min(100, ((gameState?.currentRound || 0) / (((gameState as any)?.totalTeams || 20) - 1) * 2) * 100)}%` }}></div>
               </div>
             </div>
-          </div>
-        </div>
-
-        {/* ÁREA DE BOTÕES - LINHA 1 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border border-neutral-800 flex flex-col gap-2 sm:gap-3">
-            <h3 className="text-[10px] sm:text-xs text-neutral-500 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">1. Preparação</h3>
-            <button onClick={() => mudarFase('SETUP')} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 font-bold rounded text-white shadow transition-all text-xs sm:text-sm">Sala de Espera</button>
-            <button onClick={iniciarPreTemporada} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-fifa-gray-light font-bold rounded shadow transition-all text-xs sm:text-sm">Iniciar Pré-Temporada</button>
-          </div>
-
-          <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-fifa-blue flex flex-col gap-2 sm:gap-3 shadow-lg">
-            <h3 className="text-[10px] sm:text-xs text-fifa-blue font-black uppercase tracking-widest border-b border-neutral-800 pb-2">2. Campeonato</h3>
-            <input type="text" placeholder="Nome da Temporada" value={nomeCampeonato} onChange={(e) => setNomeCampeonato(e.target.value)} className="w-full bg-neutral-950 text-white p-2 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-fifa-blue text-[10px] sm:text-xs" />
-            <div className="flex gap-2 w-full">
-              <select value={tamanhoCampeonato} onChange={(e) => setTamanhoCampeonato(Number(e.target.value))} className="bg-neutral-950 text-white p-2 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-fifa-blue text-[10px] sm:text-xs">
-                <option value={4}>4 Times</option>
-                <option value={10}>10 Times</option>
-                <option value={14}>14 Times</option>
-                <option value={20}>20 Times</option>
-              </select>
-              <button onClick={gerarCampeonato} className="flex-1 py-2 bg-fifa-blue/20 hover:bg-fifa-blue/30 border border-fifa-blue/50 text-fifa-blue font-bold rounded shadow transition-all text-[10px] sm:text-xs uppercase tracking-widest">Gerar Tabela</button>
-            </div>
-            <button onClick={simularRodadaAtual} disabled={salvando} className={`w-full py-2 sm:py-3 hover:bg-opacity-80 font-black rounded text-white shadow-lg transition-all text-xs sm:text-sm uppercase tracking-widest mt-auto ${podeDarApito ? 'bg-yellow-500 text-neutral-900 shadow-[0_0_20px_rgba(234,179,8,0.5)] animate-bounce' : 'bg-fifa-blue'}`}>
-              {salvando ? 'Processando...' : `Simular Rodada ${Math.min(((gameState as any)?.totalTeams ? ((gameState as any).totalTeams - 1) * 2 : 38), gameState?.currentRound || 1)}`}
-            </button>
-          </div>
-
-          <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-fifa-green flex flex-col gap-2 sm:gap-3 shadow-lg">
-            <h3 className="text-[10px] sm:text-xs text-fifa-green font-black uppercase tracking-widest border-b border-neutral-800 pb-2">3. Meio de Temporada</h3>
-            <button onClick={iniciarJanelaTransferencias} className="w-full py-2 bg-fifa-green/20 hover:bg-fifa-green/30 border border-fifa-green/50 text-fifa-green font-bold rounded shadow transition-all text-[10px] sm:text-sm">Janela de Transf.</button>
-            <button onClick={iniciarReturno} className="w-full py-2 bg-fifa-green hover:bg-opacity-80 text-white font-bold rounded shadow transition-all text-[10px] sm:text-sm mt-auto">Iniciar Returno ▶️</button>
-          </div>
-
-          <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-orange-500 flex flex-col gap-2 sm:gap-3 shadow-lg">
-            <h3 className="text-[10px] sm:text-xs text-orange-500 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">4. Intervenções (AFK)</h3>
             
-            <select 
-              value={jogadorDesistenteUid} 
-              onChange={(e) => setJogadorDesistenteUid(e.target.value)} 
-              className="w-full bg-neutral-950 text-white p-2 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-orange-500 text-[10px] sm:text-xs"
-            >
-              <option value="">Selecione o Técnico...</option>
-              {gameState?.teams?.filter(t => t.isUser).map(t => (
-                 <option key={t.id} value={t.id}>{t.nome}</option>
-              ))}
-            </select>
+            <div className="flex gap-2 w-full md:w-auto mt-2 md:mt-0">
+              <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 text-center flex-1 md:min-w-40 flex flex-col justify-center">
+                <p className="text-[17px] text-neutral-500 uppercase font-black">Escalações Prontas</p>
+                <p className="text-xl sm:text-2xl font-black text-fifa-green leading-none my-1">{timesProntos.length} <span className="text-sm text-neutral-600">/ {totalHumanos}</span></p>
+              </div>
+
+              <div className={`bg-neutral-950 p-4 rounded-lg border text-center flex-1 md:min-w-40 transition-all flex flex-col justify-center ${podeDarApito ? 'border-yellow-500/50 shadow-[0_0_15px_rgba(234,179,8,0.2)]' : 'border-neutral-800'}`}>
+                <p className="text-[17px] text-neutral-500 uppercase font-black">Na TV (Estádio)</p>
+                <p className={`text-xl sm:text-2xl font-black leading-none my-1 ${podeDarApito ? 'text-yellow-500 animate-pulse' : 'text-neutral-400'}`}>
+                  {timesNaTv.length} <span className="text-sm text-neutral-600">/ {totalHumanos}</span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex bg-neutral-900 p-2 rounded-xl border border-neutral-800 shadow-lg">
             <button 
-              onClick={() => autoEscalarJogador(jogadorDesistenteUid)} 
-              disabled={!jogadorDesistenteUid || salvando} 
-              className="w-full py-2 bg-orange-500/20 hover:bg-orange-500/40 border border-orange-500/50 text-orange-500 font-bold rounded shadow transition-all text-[10px] sm:text-xs uppercase tracking-widest disabled:opacity-50"
+              onClick={() => setAbaAtiva('TORNEIO')} 
+              className={`flex-1 py-3 px-4 rounded-lg font-black uppercase tracking-widest text-xs transition-colors ${abaAtiva === 'TORNEIO' ? 'bg-fifa-blue text-white shadow-md' : 'text-neutral-500 hover:text-white hover:bg-neutral-800'}`}
             >
-              Auto-Escalar Time
+              Organização do Torneio
             </button>
-
-            <div className="flex gap-2 w-full mt-auto">
-              <button 
-                onClick={pularTurnoAtual} 
-                disabled={salvando || !jogadorDesistenteUid || !gameState?.draftOrder || gameState.draftOrder.length === 0} 
-                className="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-white font-bold rounded shadow transition-all text-[10px] sm:text-[10px] uppercase tracking-widest disabled:opacity-50"
-                title="Remove o jogador selecionado da fila atual"
-              >
-                ⏭️ Pular
-              </button>
-              <button 
-                onClick={retornarJogadorAFK} 
-                disabled={salvando || !jogadorDesistenteUid} 
-                className="flex-1 py-2 bg-fifa-green/20 hover:bg-fifa-green/40 border border-fifa-green/50 text-fifa-green font-bold rounded shadow transition-all text-[10px] sm:text-[10px] uppercase tracking-widest disabled:opacity-50"
-                title="Devolve o jogador para o final da fila"
-              >
-                ↩️ Devolver
-              </button>
-            </div>
+            <button 
+              onClick={() => setAbaAtiva('CLUBES')} 
+              className={`flex-1 py-3 px-4 rounded-lg font-black uppercase tracking-widest text-xs transition-colors ${abaAtiva === 'CLUBES' ? 'bg-fifa-green text-white shadow-md' : 'text-neutral-500 hover:text-white hover:bg-neutral-800'}`}
+            >
+              Gestão de Clubes & Base
+            </button>
           </div>
         </div>
-        
-        <div className="flex justify-end pt-2">
-            <button onClick={resetarPreTemporada} disabled={salvando} className="py-2 px-6 bg-fifa-red/10 hover:bg-fifa-red/30 border border-fifa-red/30 hover:border-fifa-red/60 text-fifa-red font-black text-[10px] sm:text-xs tracking-widest uppercase rounded-lg shadow transition-all">🚨 Resetar Servidor Profundo</button>
-        </div>
 
-        {/* GERENCIADOR DE CLUBES */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 pt-6 sm:pt-8 border-t border-neutral-900">
-          <div className="space-y-6 sm:space-y-8">
-            <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl">
-              <h2 className="font-black text-base sm:text-lg text-white mb-4 uppercase tracking-widest flex items-center gap-2"><span className="text-fifa-blue">🤖</span> Importar JSON</h2>
-              <input type="text" placeholder="Prompt (Ex: Cruzeiro 2003)" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 text-white p-2 sm:p-3 rounded-xl mb-3 text-sm focus:border-fifa-blue outline-none transition-all placeholder:text-neutral-600 font-bold"/>
-              {promptParaIA && <button onClick={() => { navigator.clipboard.writeText(promptParaIA); toast.success("Prompt copiado!"); }} className="w-full mb-3 sm:mb-4 text-[10px] sm:text-xs bg-fifa-blue/20 border border-fifa-blue/50 text-fifa-blue py-2 sm:py-3 rounded-lg font-black uppercase tracking-widest hover:bg-fifa-blue/30 transition-colors">Copiar Prompt Gerado</button>}
-              <textarea placeholder='Cole o JSON retornado pela IA aqui...' value={jsonImportado} onChange={(e) => setJsonImportado(e.target.value)} className="w-full h-24 sm:h-32 p-3 sm:p-4 bg-neutral-950 border border-neutral-800 rounded-xl text-[10px] sm:text-xs text-fifa-green font-mono mb-3 sm:mb-4 focus:border-fifa-blue outline-none placeholder:text-neutral-700"/>
-              <button onClick={carregarJson} disabled={!jsonImportado} className="w-full bg-fifa-blue text-white py-2 sm:py-3 text-xs sm:text-sm rounded-xl font-black uppercase tracking-widest hover:bg-opacity-80 disabled:opacity-50 transition-colors shadow-lg">Analisar JSON</button>
-              {erroJson && <p className="text-orange-500 text-[10px] sm:text-xs mt-3 font-bold bg-orange-950/30 p-2 rounded">{erroJson}</p>}
+        {/* ================= ABA 1: TORNEIO ================= */}
+        {abaAtiva === 'TORNEIO' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fade-in">
+            <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border border-neutral-800 flex flex-col gap-2 sm:gap-3">
+              <h3 className="text-[17px] sm:text-xs text-neutral-500 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">1. Preparação</h3>
+              <button onClick={() => mudarFase('SETUP')} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 font-bold rounded text-white shadow transition-all text-xs sm:text-sm">Sala de Espera</button>
+              <button onClick={iniciarPreTemporada} className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-fifa-gray-light font-bold rounded shadow transition-all text-xs sm:text-sm">Iniciar Pré-Temporada</button>
             </div>
-            <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl max-h-96 sm:max-h-125 overflow-y-auto custom-scrollbar">
-              <h2 className="font-black text-base sm:text-lg text-white mb-4 uppercase tracking-widest flex items-center justify-between">Banco <span className="bg-neutral-800 text-neutral-400 text-[10px] sm:text-xs py-1 px-3 rounded-full">{clubesSalvos.length}</span></h2>
-              <div className="space-y-2 sm:space-y-3">
-                {clubesSalvos.map(clube => (
-                  <div key={clube.id} className="flex justify-between items-center bg-neutral-950 p-3 sm:p-4 rounded-xl border border-neutral-800 hover:border-neutral-700 transition-all group">
-                    <div className="truncate pr-2">
-                      <p className="font-black text-white text-xs sm:text-sm uppercase tracking-tight truncate">{clube.nome} <span className="text-fifa-green">{clube.ano}</span></p>
-                      <p className="text-[8px] sm:text-[10px] text-fifa-blue font-black uppercase tracking-widest mt-0.5 sm:mt-1">{clube.elenco.length} Atletas • OVR: {getClubeOvr(clube.elenco)}</p>
-                    </div>
-                    <div className="flex gap-1 sm:gap-2 shrink-0">
-                      <button onClick={() => setClubeEmEdicao(clube)} className="text-[10px] sm:text-xs bg-neutral-800 px-2 sm:px-4 py-1 sm:py-2 rounded-lg font-black text-white hover:bg-neutral-700 hover:text-fifa-blue transition-colors">Edit</button>
-                      <button onClick={() => excluirClube(clube.id)} className="text-[10px] sm:text-xs bg-fifa-red/20 text-fifa-red px-2 sm:px-3 py-1 sm:py-2 rounded-lg font-black hover:bg-fifa-red hover:text-white transition-colors">X</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="lg:col-span-2">
-            {clubeEmEdicao ? (
-              <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-fifa-green/50 shadow-[0_0_30px_rgba(60,172,59,0.05)] flex flex-col h-full">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 sm:mb-6 border-b border-neutral-800 pb-4 sm:pb-6 gap-3 sm:gap-4">
+
+            <div className="md:col-span-2 lg:col-span-4 bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-fifa-blue flex flex-col gap-4 shadow-lg order-last lg:order-0">
+              <h3 className="text-[17px] sm:text-xs text-fifa-blue font-black uppercase tracking-widest border-b border-neutral-800 pb-2">2. Configuração do Campeonato</h3>
+              
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Lado Esquerdo: Configurações Globais */}
+                <div className="flex flex-col gap-4">
                   <div>
-                    <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tighter">Inspetor de Elenco</h2>
-                    <p className="text-[10px] sm:text-xs text-neutral-500 font-bold uppercase tracking-widest mt-1">Ajuste OVR e posições.</p>
+                    <label className="block text-[15px] text-neutral-500 font-bold uppercase tracking-widest mb-1">Nome da Edição</label>
+                    <input type="text" placeholder="Ex: Brasileirão 2026" value={nomeCampeonato} onChange={(e) => setNomeCampeonato(e.target.value)} className="w-full bg-neutral-950 text-white p-3 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-fifa-blue text-xs" />
                   </div>
-                  <div className="flex gap-2 sm:gap-3 w-full md:w-auto">
-                    <button onClick={() => setClubeEmEdicao(null)} className="flex-1 md:flex-none px-4 sm:px-6 py-2 sm:py-3 bg-neutral-800 rounded-xl text-xs sm:text-sm font-black uppercase tracking-widest text-neutral-400 hover:bg-neutral-700 hover:text-white transition-colors">Descartar</button>
-                    <button onClick={salvarClube} disabled={salvando} className="flex-1 md:flex-none px-4 sm:px-6 py-2 sm:py-3 bg-fifa-green rounded-xl text-xs sm:text-sm font-black uppercase tracking-widest text-white hover:bg-opacity-80 transition-colors">{salvando ? 'Salvando...' : 'Injetar'}</button>
+                  
+                  <div>
+                    <label className="block text-[15px] text-neutral-500 font-bold uppercase tracking-widest mb-1">Formato</label>
+                    <select value={formatoTorneio} onChange={(e) => setFormatoTorneio(e.target.value as any)} className="w-full bg-neutral-950 text-white p-3 rounded-lg border border-neutral-700 outline-none font-bold uppercase text-xs">
+                      <option value="LIGA">Liga (Pontos Corridos)</option>
+                      <option value="COPA">Copa (Mata-Mata)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[15px] text-neutral-500 font-bold uppercase tracking-widest mb-1">Duração</label>
+                    <select value={tipoTurno} onChange={(e) => setTipoTurno(e.target.value as any)} className="w-full bg-neutral-950 text-white p-3 rounded-lg border border-neutral-700 outline-none font-bold uppercase text-xs">
+                      <option value="IDA_VOLTA">Ida e Volta</option>
+                      <option value="IDA">Apenas Ida</option>
+                    </select>
+                  </div>
+
+                  {/* NOVOS INPUTS: Ajuste Fino de Vagas e Zonas */}
+                  <div className="grid grid-cols-1 gap-2 border-t border-neutral-800 pt-3 mt-1">
+                    <p className="text-[8px] text-neutral-500 font-bold uppercase tracking-widest mb-1">Zonas de Premiação / Acesso</p>
+                    
+                    <div className="flex gap-2">
+                      <input type="text" value={zona1Nome} onChange={(e) => setZona1Nome(e.target.value)} placeholder="Ex: Campeão / Acesso" className="w-2/3 bg-neutral-950 text-cyan-400 p-2 rounded border border-neutral-800 outline-none font-bold text-[10px] uppercase focus:border-cyan-400" />
+                      <input type="number" value={zona1Vagas} onChange={(e) => setZona1Vagas(Math.max(0, Number(e.target.value)))} className="w-1/3 bg-neutral-950 text-white p-2 rounded border border-neutral-800 outline-none font-bold text-center text-[10px] focus:border-cyan-400" title="Quantidade de Vagas" />
+                    </div>
+                    <div className="flex gap-2">
+                      <input type="text" value={zona2Nome} onChange={(e) => setZona2Nome(e.target.value)} placeholder="Ex: Playoffs" className="w-2/3 bg-neutral-950 text-blue-400 p-2 rounded border border-neutral-800 outline-none font-bold text-[10px] uppercase focus:border-blue-400" />
+                      <input type="number" value={zona2Vagas} onChange={(e) => setZona2Vagas(Math.max(0, Number(e.target.value)))} className="w-1/3 bg-neutral-950 text-white p-2 rounded border border-neutral-800 outline-none font-bold text-center text-[10px] focus:border-blue-400" />
+                    </div>
+                    <div className="flex gap-2">
+                      <input type="text" value={zona3Nome} onChange={(e) => setZona3Nome(e.target.value)} placeholder="Ex: Manutenção" className="w-2/3 bg-neutral-950 text-fifa-green p-2 rounded border border-neutral-800 outline-none font-bold text-[10px] uppercase focus:border-fifa-green" />
+                      <input type="number" value={zona3Vagas} onChange={(e) => setZona3Vagas(Math.max(0, Number(e.target.value)))} className="w-1/3 bg-neutral-950 text-white p-2 rounded border border-neutral-800 outline-none font-bold text-center text-[10px] focus:border-fifa-green" />
+                    </div>
+                    
+                    <p className="text-[8px] text-neutral-500 font-bold uppercase tracking-widest mt-1">Zona de Queda</p>
+                    <div className="flex gap-2">
+                      <input type="text" value={zona4Nome} onChange={(e) => setZona4Nome(e.target.value)} placeholder="Ex: Rebaixamento" className="w-2/3 bg-neutral-950 text-fifa-red p-2 rounded border border-neutral-800 outline-none font-bold text-[10px] uppercase focus:border-fifa-red" />
+                      <input type="number" value={zona4Vagas} onChange={(e) => setZona4Vagas(Math.max(0, Number(e.target.value)))} className="w-1/3 bg-neutral-950 text-white p-2 rounded border border-neutral-800 outline-none font-bold text-center text-[10px] focus:border-fifa-red" />
+                    </div>
                   </div>
                 </div>
-                <div className="flex flex-col md:flex-row gap-3 sm:gap-4 mb-4 sm:mb-8">
-                  <div className="flex-1">
-                    <label className="block text-[8px] sm:text-[10px] font-black text-fifa-blue uppercase tracking-widest mb-1 sm:mb-2">Designação</label>
-                    <input type="text" value={clubeEmEdicao.nome} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, nome: e.target.value})} className="w-full bg-neutral-950 border border-neutral-800 p-3 sm:p-4 rounded-xl text-white text-sm font-black uppercase focus:border-fifa-blue outline-none transition-all"/>
-                  </div>
-                  <div className="w-full md:w-32 sm:w-40">
-                    <label className="block text-[8px] sm:text-[10px] font-black text-fifa-blue uppercase tracking-widest mb-1 sm:mb-2">Temporada</label>
-                    <input type="number" value={clubeEmEdicao.ano} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, ano: Number(e.target.value)})} className="w-full bg-neutral-950 border border-neutral-800 p-3 sm:p-4 rounded-xl text-fifa-green text-sm font-black text-center focus:border-fifa-blue outline-none transition-all"/>
-                  </div>
-                </div>
-                <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-2 sm:p-4 flex-1">
-                  <div className="flex px-2 sm:px-4 pb-2 text-[8px] sm:text-[10px] text-neutral-500 font-black uppercase tracking-widest border-b border-neutral-800 mb-2 sm:mb-4">
-                    <div className="flex-3 sm:flex-5">Atleta</div>
-                    <div className="flex-2 sm:flex-3 text-center">Setor</div>
-                    <div className="flex-2 sm:flex-2 text-center">OVR</div>
-                    <div className="hidden sm:block flex-1 sm:flex-2"></div>
-                  </div>
-                  <div className="space-y-2 sm:space-y-3 max-h-75 sm:max-h-125 overflow-y-auto custom-scrollbar pr-1 sm:pr-2">
-                    {clubeEmEdicao.elenco.map((jogador, index) => (
-                      <div key={jogador.id || index} className="flex gap-2 sm:gap-4 bg-neutral-900/50 p-2 sm:p-3 rounded-lg border border-neutral-800 items-center hover:border-neutral-700 transition-colors">
-                        <div className="flex-3 sm:flex-5">
-                          <input type="text" value={jogador.nome} onChange={(e) => handleEditJogador(jogador.id, 'nome', e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 p-2 sm:p-3 rounded-lg text-white text-[10px] sm:text-sm font-bold focus:border-fifa-blue outline-none transition-colors"/>
-                        </div>
-                        <div className="flex-2 sm:flex-3">
-                          <select value={jogador.posicao} onChange={(e) => handleEditJogador(jogador.id, 'posicao', e.target.value as Posicao)} className="w-full bg-neutral-950 border border-neutral-800 p-2 sm:p-3 rounded-lg text-fifa-blue text-[10px] sm:text-sm font-black focus:border-fifa-blue outline-none transition-colors cursor-pointer text-center sm:text-left">
-                            <option value="GOL">GOL</option><option value="DEF">DEF</option><option value="MEI">MEI</option><option value="ATA">ATA</option>
-                          </select>
-                        </div>
-                        <div className="flex-2 sm:flex-2">
-                          <input type="number" value={jogador.overall} onChange={(e) => handleEditJogador(jogador.id, 'overall', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 p-2 sm:p-3 rounded-lg text-fifa-green font-black text-center text-[10px] sm:text-sm focus:border-fifa-blue outline-none transition-colors"/>
-                        </div>
-                        <div className="hidden sm:flex flex-1 sm:flex-2 items-center justify-center gap-2 sm:gap-3">
-                          <span className={`text-xs sm:text-sm ${jogador.statusFisico?.lesionado ? 'text-red-500 drop-shadow-md' : 'text-neutral-700 opacity-20'}`} title="Risco de Lesão">🏥</span>
-                          <span className={`text-xs sm:text-sm ${jogador.statusFisico?.suspenso ? 'text-orange-500 drop-shadow-md' : 'text-neutral-700 opacity-20'}`} title="Suspenso">🟥</span>
-                        </div>
+
+                {/* Lado Direito: Seleção Dinâmica de Times */}
+                <div className="lg:col-span-2 flex flex-col sm:flex-row gap-4">
+                  <div className="flex-1 bg-neutral-950 border border-neutral-800 rounded-lg p-3 flex flex-col">
+                    <div className="flex justify-between items-center mb-2 border-b border-neutral-800 pb-2">
+                      <p className="text-[14px] text-neutral-400 font-bold uppercase">Sala de Espera</p>
+                      <div className="flex gap-1">
+                        <button onClick={() => setFiltroDisponiveis('HUMANOS')} className={`text-[11px] font-black px-1.5 py-0.5 rounded uppercase ${filtroDisponiveis === 'HUMANOS' ? 'bg-yellow-500 text-neutral-900' : 'bg-neutral-800 text-neutral-500'}`}>Humanos</button>
+                        <button onClick={() => setFiltroDisponiveis('BOTS')} className={`text-[11px] font-black px-1.5 py-0.5 rounded uppercase ${filtroDisponiveis === 'BOTS' ? 'bg-fifa-blue text-white' : 'bg-neutral-800 text-neutral-500'}`}>Bots</button>
+                        <button onClick={() => setFiltroDisponiveis('TODOS')} className={`text-[11px] font-black px-1.5 py-0.5 rounded uppercase ${filtroDisponiveis === 'TODOS' ? 'bg-neutral-300 text-neutral-900' : 'bg-neutral-800 text-neutral-500'}`}>Todos</button>
                       </div>
-                    ))}
+                    </div>
+                    <div className="flex-1 h-40 sm:h-50 overflow-y-auto custom-scrollbar space-y-1 pr-1">
+                      {timesDisponiveis
+                        .filter(t => filtroDisponiveis === 'TODOS' ? true : filtroDisponiveis === 'HUMANOS' ? t.isUser : !t.isUser)
+                        .map(t => (
+                         <div key={t.id} onClick={() => adicionarTimeAoTorneio(t)} className="text-[14px] p-2 bg-neutral-900 hover:bg-neutral-800 cursor-pointer rounded border border-neutral-800 flex justify-between group transition-colors">
+                            <span className="truncate pr-2">{t.nome} {t.isUser ? <span className="text-yellow-500 font-black">(H)</span> : ''}</span>
+                            <span className="text-fifa-green font-black opacity-0 group-hover:opacity-100">+ PUXAR</span>
+                         </div>
+                      ))}
+                      {timesDisponiveis.filter(t => filtroDisponiveis === 'TODOS' ? true : filtroDisponiveis === 'HUMANOS' ? t.isUser : !t.isUser).length === 0 && (
+                        <p className="text-neutral-600 italic text-[17px] text-center mt-4">Lista vazia.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex-1 bg-neutral-950 border border-fifa-blue/30 rounded-lg p-3 flex flex-col shadow-[inset_0_0_20px_rgba(42,57,141,0.05)]">
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="text-[14px] text-fifa-blue font-bold uppercase">Participantes</p>
+                      <span className={`text-[17px] font-black px-1.5 py-0.5 rounded ${timesSelecionados.length % 2 === 0 && timesSelecionados.length >= 4 ? 'bg-fifa-green/20 text-fifa-green' : 'bg-fifa-red/20 text-fifa-red'}`}>{timesSelecionados.length} Times</span>
+                    </div>
+                    <div className="flex-1 h-40 sm:h-50 overflow-y-auto custom-scrollbar space-y-1 pr-1">
+                      {timesSelecionados.map(t => (
+                         <div key={t.id} onClick={() => removerTimeDoTorneio(t)} className="text-[14px] p-2 bg-neutral-900 hover:bg-fifa-red/10 cursor-pointer rounded border border-neutral-800 hover:border-fifa-red/30 flex justify-between group transition-colors">
+                            <span className="truncate pr-2">{t.nome} {t.isUser ? <span className="text-yellow-500">(Humano)</span> : ''}</span>
+                            <span className="text-fifa-red font-black opacity-0 group-hover:opacity-100">REMOVER</span>
+                         </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="h-full min-h-64 sm:min-h-100 flex flex-col items-center justify-center border-2 border-dashed border-neutral-800 rounded-2xl p-6 sm:p-10 text-neutral-600 bg-neutral-900/30">
-                <span className="text-5xl sm:text-7xl mb-4 sm:mb-6 grayscale opacity-20">⚙️</span>
-                <p className="font-black text-xl sm:text-2xl uppercase tracking-tighter text-neutral-500 text-center">Inspetor de Elenco</p>
-                <p className="text-[10px] sm:text-sm font-bold text-neutral-600 mt-2 uppercase tracking-widest text-center">Aguardando importação.</p>
+
+              <div className="flex flex-col sm:flex-row gap-4 mt-2">
+                <button onClick={gerarCampeonato} disabled={salvando} className="flex-1 py-4 bg-fifa-blue/20 hover:bg-fifa-blue/30 border border-fifa-blue/50 text-fifa-blue font-black rounded-xl shadow transition-all text-xs uppercase tracking-widest">
+                  Criar Calendário e Tabela Oficial
+                </button>
+                
+                {(() => {
+                  const proximoEvento = gameState?.schedule?.[(gameState?.currentRound || 1) - 1];
+                  const isMercado = proximoEvento?.tipo === 'TRANSFERENCIAS';
+                  const tituloBotao = proximoEvento ? (isMercado ? 'Abrir Mercado de Transferências' : `Iniciar: ${proximoEvento.titulo}`) : 'Calendário Concluído';
+                  
+                  return (
+                    <button 
+                      onClick={simularRodadaAtual} 
+                      disabled={salvando || !proximoEvento} 
+                      className={`flex-1 py-4 hover:bg-opacity-80 font-black rounded-xl text-white shadow-lg transition-all text-xs uppercase tracking-widest 
+                        ${!proximoEvento ? 'bg-neutral-800 text-neutral-600' : isMercado ? 'bg-purple-600 shadow-[0_0_20px_rgba(147,51,234,0.5)] animate-pulse' : (podeDarApito ? 'bg-yellow-500 text-neutral-900 shadow-[0_0_20px_rgba(234,179,8,0.5)] animate-bounce' : 'bg-fifa-green')}
+                      `}
+                    >
+                      {salvando ? 'Processando...' : tituloBotao}
+                    </button>
+                  );
+                })()}
               </div>
-            )}
+            </div>
+
+            <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-fifa-green flex flex-col gap-2 sm:gap-3 shadow-lg">
+              <h3 className="text-[17px] sm:text-xs text-fifa-green font-black uppercase tracking-widest border-b border-neutral-800 pb-2">3. Intervenções</h3>              
+              <button onClick={encerrarCampeonatoForcado} className="w-full py-2 mt-auto bg-fifa-red/10 hover:bg-fifa-red/20 border border-fifa-red/30 text-fifa-red font-black rounded shadow transition-all text-[17px] uppercase tracking-widest">
+                Encerrar Campeonato Agora
+              </button>
+            </div>
+
+            <div className="bg-neutral-900 p-4 sm:p-5 rounded-xl border-t-4 border-t-orange-500 flex flex-col gap-2 sm:gap-3 shadow-lg">
+              <h3 className="text-[17px] sm:text-xs text-orange-500 font-black uppercase tracking-widest border-b border-neutral-800 pb-2">4. Intervenções (AFK)</h3>
+              
+              <select 
+                value={jogadorDesistenteUid} 
+                onChange={(e) => setJogadorDesistenteUid(e.target.value)} 
+                className="w-full bg-neutral-950 text-white p-2 rounded-lg border border-neutral-700 outline-none font-bold uppercase focus:border-orange-500 text-[17px] sm:text-xs"
+              >
+                <option value="">Selecione o Técnico...</option>
+                {gameState?.teams?.filter(t => t.isUser).map(t => (
+                   <option key={t.id} value={t.id}>{t.nome}</option>
+                ))}
+              </select>
+              <button 
+                onClick={() => autoEscalarJogador(jogadorDesistenteUid)} 
+                disabled={!jogadorDesistenteUid || salvando} 
+                className="w-full py-2 bg-orange-500/20 hover:bg-orange-500/40 border border-orange-500/50 text-orange-500 font-bold rounded shadow transition-all text-[17px] sm:text-xs uppercase tracking-widest disabled:opacity-50"
+              >
+                Auto-Escalar Time
+              </button>
+
+              <div className="flex gap-2 w-full mt-auto">
+                <button 
+                  onClick={pularTurnoAtual} 
+                  disabled={salvando || !jogadorDesistenteUid || !gameState?.draftOrder || gameState.draftOrder.length === 0} 
+                  className="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-white font-bold rounded shadow transition-all text-[17px] sm:text-[17px] uppercase tracking-widest disabled:opacity-50"
+                  title="Remove o jogador selecionado da fila atual"
+                >
+                  ⏭️ Pular
+                </button>
+                <button 
+                  onClick={retornarJogadorAFK} 
+                  disabled={salvando || !jogadorDesistenteUid} 
+                  className="flex-1 py-2 bg-fifa-green/20 hover:bg-fifa-green/40 border border-fifa-green/50 text-fifa-green font-bold rounded shadow transition-all text-[17px] sm:text-[17px] uppercase tracking-widest disabled:opacity-50"
+                  title="Devolve o jogador para o final da fila"
+                >
+                  ↩️ Devolver
+                </button>
+              </div>
+            </div>
+            
+            <div className="col-span-1 md:col-span-2 lg:col-span-4 flex justify-end pt-2">
+              <button onClick={resetarPreTemporada} disabled={salvando} className="py-2 px-6 bg-fifa-red/10 hover:bg-fifa-red/30 border border-fifa-red/30 hover:border-fifa-red/60 text-fifa-red font-black text-[17px] sm:text-xs tracking-widest uppercase rounded-lg shadow transition-all">🚨 Resetar Servidor Profundo</button>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* ================= ABA 2: CLUBES E BASE ================= */}
+        {abaAtiva === 'CLUBES' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 animate-fade-in">
+            <div className="space-y-6 sm:space-y-8">
+              <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl">
+                <h2 className="font-black text-base sm:text-lg text-white mb-4 uppercase tracking-widest flex items-center gap-2"><span className="text-fifa-blue">🤖</span> Importar JSON</h2>
+                <input type="text" placeholder="Prompt (Ex: Cruzeiro 2003)" value={termoBusca} onChange={(e) => setTermoBusca(e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 text-white p-2 sm:p-3 rounded-xl mb-3 text-sm focus:border-fifa-blue outline-none transition-all placeholder:text-neutral-600 font-bold"/>
+                {promptParaIA && <button onClick={() => { navigator.clipboard.writeText(promptParaIA); toast.success("Prompt copiado!"); }} className="w-full mb-3 sm:mb-4 text-[17px] sm:text-xs bg-fifa-blue/20 border border-fifa-blue/50 text-fifa-blue py-2 sm:py-3 rounded-lg font-black uppercase tracking-widest hover:bg-fifa-blue/30 transition-colors">Copiar Prompt Gerado</button>}
+                <textarea placeholder='Cole o JSON retornado pela IA aqui...' value={jsonImportado} onChange={(e) => setJsonImportado(e.target.value)} className="w-full h-24 sm:h-32 p-3 sm:p-4 bg-neutral-950 border border-neutral-800 rounded-xl text-[17px] sm:text-xs text-fifa-green font-mono mb-3 sm:mb-4 focus:border-fifa-blue outline-none placeholder:text-neutral-700"/>
+                <button onClick={carregarJson} disabled={!jsonImportado} className="w-full bg-fifa-blue text-white py-2 sm:py-3 text-xs sm:text-sm rounded-xl font-black uppercase tracking-widest hover:bg-opacity-80 disabled:opacity-50 transition-colors shadow-lg">Analisar JSON</button>
+                {erroJson && <p className="text-orange-500 text-[17px] sm:text-xs mt-3 font-bold bg-orange-950/30 p-2 rounded">{erroJson}</p>}
+              </div>
+              <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-xl max-h-96 sm:max-h-125 overflow-y-auto custom-scrollbar">
+                <h2 className="font-black text-base sm:text-lg text-white mb-4 uppercase tracking-widest flex items-center justify-between">Banco <span className="bg-neutral-800 text-neutral-400 text-[17px] sm:text-xs py-1 px-3 rounded-full">{clubesSalvos.length}</span></h2>
+                <div className="space-y-2 sm:space-y-3">
+                  {clubesSalvos.map(clube => (
+                    <div key={clube.id} className="flex justify-between items-center bg-neutral-950 p-3 sm:p-4 rounded-xl border border-neutral-800 hover:border-neutral-700 transition-all group">
+                      <div className="truncate pr-2">
+                        <p className="font-black text-white text-xs sm:text-sm uppercase tracking-tight truncate">{clube.nome} <span className="text-fifa-green">{clube.ano}</span></p>
+                        <p className="text-[8px] sm:text-[17px] text-fifa-blue font-black uppercase tracking-widest mt-0.5 sm:mt-1">{clube.elenco.length} Atletas • OVR: {getClubeOvr(clube.elenco)}</p>
+                      </div>
+                      <div className="flex gap-1 sm:gap-2 shrink-0">
+                        <button onClick={() => setClubeEmEdicao(clube)} className="text-[17px] sm:text-xs bg-neutral-800 px-2 sm:px-4 py-1 sm:py-2 rounded-lg font-black text-white hover:bg-neutral-700 hover:text-fifa-blue transition-colors">Edit</button>
+                        <button onClick={() => excluirClube(clube.id)} className="text-[17px] sm:text-xs bg-fifa-red/20 text-fifa-red px-2 sm:px-3 py-1 sm:py-2 rounded-lg font-black hover:bg-fifa-red hover:text-white transition-colors">X</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            
+            <div className="lg:col-span-2">
+              {clubeEmEdicao ? (
+                <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-fifa-green/50 shadow-[0_0_30px_rgba(60,172,59,0.05)] flex flex-col h-full">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 sm:mb-6 border-b border-neutral-800 pb-4 sm:pb-6 gap-3 sm:gap-4">
+                    <div>
+                      <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tighter">Inspetor de Elenco</h2>
+                      <p className="text-[17px] sm:text-xs text-neutral-500 font-bold uppercase tracking-widest mt-1">Ajuste OVR e posições.</p>
+                    </div>
+                    <div className="flex gap-2 sm:gap-3 w-full md:w-auto">
+                      <button onClick={() => setClubeEmEdicao(null)} className="flex-1 md:flex-none px-4 sm:px-6 py-2 sm:py-3 bg-neutral-800 rounded-xl text-xs sm:text-sm font-black uppercase tracking-widest text-neutral-400 hover:bg-neutral-700 hover:text-white transition-colors">Descartar</button>
+                      <button onClick={salvarClube} disabled={salvando} className="flex-1 md:flex-none px-4 sm:px-6 py-2 sm:py-3 bg-fifa-green rounded-xl text-xs sm:text-sm font-black uppercase tracking-widest text-white hover:bg-opacity-80 transition-colors">{salvando ? 'Salvando...' : 'Injetar'}</button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col md:flex-row gap-3 sm:gap-4 mb-4 sm:mb-8">
+                    <div className="flex-1">
+                      <label className="block text-[8px] sm:text-[17px] font-black text-fifa-blue uppercase tracking-widest mb-1 sm:mb-2">Designação</label>
+                      <input type="text" value={clubeEmEdicao.nome} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, nome: e.target.value})} className="w-full bg-neutral-950 border border-neutral-800 p-3 sm:p-4 rounded-xl text-white text-sm font-black uppercase focus:border-fifa-blue outline-none transition-all"/>
+                    </div>
+                    <div className="w-full md:w-32 sm:w-40">
+                      <label className="block text-[8px] sm:text-[17px] font-black text-fifa-blue uppercase tracking-widest mb-1 sm:mb-2">Temporada</label>
+                      <input type="number" value={clubeEmEdicao.ano} onChange={(e) => setClubeEmEdicao({...clubeEmEdicao, ano: Number(e.target.value)})} className="w-full bg-neutral-950 border border-neutral-800 p-3 sm:p-4 rounded-xl text-fifa-green text-sm font-black text-center focus:border-fifa-blue outline-none transition-all"/>
+                    </div>
+                  </div>
+                  <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-2 sm:p-4 flex-1">
+                    <div className="flex px-2 sm:px-4 pb-2 text-[8px] sm:text-[17px] text-neutral-500 font-black uppercase tracking-widest border-b border-neutral-800 mb-2 sm:mb-4">
+                      <div className="flex-3 sm:flex-5">Atleta</div>
+                      <div className="flex-2 sm:flex-3 text-center">Setor</div>
+                      <div className="flex-2 sm:flex-2 text-center">OVR</div>
+                      <div className="hidden sm:block flex-1 sm:flex-2"></div>
+                    </div>
+                    <div className="space-y-2 sm:space-y-3 max-h-75 sm:max-h-125 overflow-y-auto custom-scrollbar pr-1 sm:pr-2">
+                      {clubeEmEdicao.elenco.map((jogador, index) => (
+                        <div key={jogador.id || index} className="flex gap-2 sm:gap-4 bg-neutral-900/50 p-2 sm:p-3 rounded-lg border border-neutral-800 items-center hover:border-neutral-700 transition-colors">
+                          <div className="flex-3 sm:flex-5">
+                            <input type="text" value={jogador.nome} onChange={(e) => handleEditJogador(jogador.id, 'nome', e.target.value)} className="w-full bg-neutral-950 border border-neutral-800 p-2 sm:p-3 rounded-lg text-white text-[17px] sm:text-sm font-bold focus:border-fifa-blue outline-none transition-colors"/>
+                          </div>
+                          <div className="flex-2 sm:flex-3">
+                            <select value={jogador.posicao} onChange={(e) => handleEditJogador(jogador.id, 'posicao', e.target.value as Posicao)} className="w-full bg-neutral-950 border border-neutral-800 p-2 sm:p-3 rounded-lg text-fifa-blue text-[17px] sm:text-sm font-black focus:border-fifa-blue outline-none transition-colors cursor-pointer text-center sm:text-left">
+                              <option value="GOL">GOL</option><option value="DEF">DEF</option><option value="MEI">MEI</option><option value="ATA">ATA</option>
+                            </select>
+                          </div>
+                          <div className="flex-2 sm:flex-2">
+                            <input type="number" value={jogador.overall} onChange={(e) => handleEditJogador(jogador.id, 'overall', Number(e.target.value))} className="w-full bg-neutral-950 border border-neutral-800 p-2 sm:p-3 rounded-lg text-fifa-green font-black text-center text-[17px] sm:text-sm focus:border-fifa-blue outline-none transition-colors"/>
+                          </div>
+                          <div className="hidden sm:flex flex-1 sm:flex-2 items-center justify-center gap-2 sm:gap-3">
+                            <span className={`text-xs sm:text-sm ${jogador.statusFisico?.lesionado ? 'text-red-500 drop-shadow-md' : 'text-neutral-700 opacity-20'}`} title="Risco de Lesão">🏥</span>
+                            <span className={`text-xs sm:text-sm ${jogador.statusFisico?.suspenso ? 'text-orange-500 drop-shadow-md' : 'text-neutral-700 opacity-20'}`} title="Suspenso">🟥</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="h-full min-h-64 sm:min-h-100 flex flex-col items-center justify-center border-2 border-dashed border-neutral-800 rounded-2xl p-6 sm:p-10 text-neutral-600 bg-neutral-900/30">
+                  <span className="text-5xl sm:text-7xl mb-4 sm:mb-6 grayscale opacity-20">⚙️</span>
+                  <p className="font-black text-xl sm:text-2xl uppercase tracking-tighter text-neutral-500 text-center">Inspetor de Elenco</p>
+                  <p className="text-[17px] sm:text-sm font-bold text-neutral-600 mt-2 uppercase tracking-widest text-center">Aguardando importação.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );

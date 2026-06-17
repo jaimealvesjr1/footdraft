@@ -52,14 +52,23 @@ export interface JogoCamp {
   homeScore: number | null;
   awayScore: number | null;
   relatorio: EventoPartida[]; 
-  pressao?: { minuto: number; valor: number }[]; // NOVO: Gráfico de momentum da V2
+  pressao?: { minuto: number; valor: number }[];
 }
 
 export type GamePhase = 'SETUP' | 'PRE_SEASON' | 'CHAMPIONSHIP' | 'FIRST_HALF' | 'TRANSFER_WINDOW' | 'SECOND_HALF' | 'FINISHED';
 
+// NOVO: Define a identidade de cada momento do calendário
+export type TipoEventoCalendario = 'LIGA' | 'COPA' | 'TRANSFERENCIAS';
+
+export interface RodadaCalendario {
+  tipo: TipoEventoCalendario;
+  titulo: string; // Ex: "Brasileirão - Rodada 1" ou "Copa do Brasil - Final (Volta)"
+  jogos: JogoCamp[];
+}
+
 export interface GameState {
   phase: GamePhase;
-  currentRound: number;
+  currentRound: number; // Agora o currentRound aponta para o index do Master Calendar
   draftOrder?: string[];
   draftTurnUid?: string | null;
   draftDeadline?: number | null;
@@ -68,5 +77,5 @@ export interface GameState {
   currentPicks?: Jogador[];
   teams?: { id: string; nome: string; isUser: boolean; }[];
   standings?: TimeTabela[];
-  schedule?: { jogos: JogoCamp[] }[];
+  schedule?: RodadaCalendario[]; // NOVO: Substituímos o array genérico por Rodadas com Identidade
 }
