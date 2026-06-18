@@ -35,17 +35,18 @@ export default function Championship() {
 
   const totalTeams = (gameState as any)?.totalTeams || 20;
   
-  const eventosLiga = gameState.schedule?.filter(e => e.tipo === 'LIGA') || [];
+  const eventosLiga = gameState.schedule?.filter(e => e.tipo === 'LIGA' || e.tipo === 'LIGA_GRUPOS') || [];
   const totalRounds = eventosLiga.length; 
   
   // Identifica o formato do torneio ativo
-  const isCopa = gameState.schedule?.some(e => e.tipo === 'COPA') && eventosLiga.length === 0;
+  const isCopaPura = gameState.schedule?.some(e => e.tipo === 'COPA') && eventosLiga.length === 0;
+  const isFormatoGrupos = gameState.schedule?.some(e => e.tipo === 'LIGA_GRUPOS');
   
-  const eventosPassadosLiga = gameState.schedule?.slice(0, gameState.currentRound - 1).filter(e => e.tipo === 'LIGA').length || 0;
-  const rodadaVerdadeira = isCopa ? gameState.currentRound : Math.min(eventosPassadosLiga + 1, totalRounds);
-  const isReturno = !isCopa && eventosPassadosLiga >= (totalRounds / 2);
+  const eventosPassadosLiga = gameState.schedule?.slice(0, gameState.currentRound - 1).filter(e => e.tipo === 'LIGA' || e.tipo === 'LIGA_GRUPOS').length || 0;
+  const rodadaVerdadeira = isCopaPura ? gameState.currentRound : Math.min(eventosPassadosLiga + 1, totalRounds);
+  const isReturno = !isCopaPura && eventosPassadosLiga >= (totalRounds / 2);
   
-  const nomeCampeonato = (gameState as any)?.nomeCampeonato || (isCopa ? "Copa Mata-Mata" : "Campeonato Brasileiro");
+  const nomeCampeonato = (gameState as any)?.nomeCampeonato || (isCopaPura ? "Copa Mata-Mata" : "Campeonato");
 
   // LEITURA DE EVENTOS ATIVOS
   const eventoAtual = gameState.schedule?.[gameState.currentRound - 1];
@@ -54,7 +55,7 @@ export default function Championship() {
   let meuUltimoJogo = null;
   for (let i = gameState.currentRound - 2; i >= 0; i--) {
     const eventoPassado = gameState.schedule?.[i];
-    if (eventoPassado?.tipo === 'LIGA' || eventoPassado?.tipo === 'COPA') {
+    if (eventoPassado?.tipo === 'LIGA' || eventoPassado?.tipo === 'COPA' || eventoPassado?.tipo === 'LIGA_GRUPOS') {
       const jogoPassado = eventoPassado.jogos?.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
       if (jogoPassado && jogoPassado.homeScore !== null) {
         meuUltimoJogo = jogoPassado;
@@ -76,7 +77,14 @@ export default function Championship() {
   const tZona3 = tZona2 + regras.zona3.vagas; 
   const tZona4 = totalTeams - regras.zona4.vagas;
 
-  const getCorTabela = (index: number) => {
+  const getCorTabela = (index: number, isGrupo: boolean = false) => {
+    // Se for fase de grupos (Estilo Libertadores), a regra é diferente: os 2 primeiros passam.
+    if (isGrupo) {
+       if (index === 0) return 'text-yellow-500';
+       if (index === 1) return 'text-cyan-400';
+       return 'text-neutral-600';
+    }
+
     if (regras.zona1.vagas > 0 && index < tZona1) return 'text-cyan-400';
     if (regras.zona2.vagas > 0 && index < tZona2) return 'text-blue-400';
     if (regras.zona3.vagas > 0 && index < tZona3) return 'text-green-400';
@@ -85,14 +93,14 @@ export default function Championship() {
   };
 
   // =======================================================
-  // TELA DE ENCERRAMENTO (RODA APENAS SE FOR FIM DE TEMPORADA)
+  // TELA DE ENCERRAMENTO
   // =======================================================
   if (gameState.phase === 'FINISHED') {
     const standings = gameState.standings || [];
     
     // Cálculo Dinâmico de Vencedor para Liga ou Copa
     let campeao = standings[0];
-    if (isCopa) {
+    if (isCopaPura || isFormatoGrupos) {
       const copas = gameState.schedule?.filter(e => e.tipo === 'COPA') || [];
       const ultimaFase = copas[copas.length - 1];
       const ultimoJogo = ultimaFase?.jogos?.[0];
@@ -106,19 +114,17 @@ export default function Championship() {
         else if (ultimoJogo.homeScore > ultimoJogo.awayScore) cId = ultimoJogo.homeId;
         else cId = ultimoJogo.awayId;
       }
-      campeao = { id: cId, pts: 0, j: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0 };
+      campeao = { id: cId, pts: 0, j: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0 } as any;
     }
     
     const calcularPontosTemporada = (posicaoIndex: number, timeId: string) => {
-      if (isCopa) {
+      if (isCopaPura || isFormatoGrupos) {
         const copas = gameState.schedule?.filter(e => e.tipo === 'COPA') || [];
-        // 50 XP para o vencedor, 20 XP por cada fase superada
-        let xp = 0;
+        let xp = isFormatoGrupos ? 20 : 0; // Ganha um trocado só por jogar os grupos
         const campeaoFinal = campeao?.id;
         
         if (campeaoFinal === timeId) xp += 50;
         
-        // Conta quantas fases o time venceu
         copas.forEach(fase => {
           const jogo = fase.jogos.find(j => j.homeId === timeId || j.awayId === timeId);
           if (jogo) {
@@ -178,7 +184,7 @@ export default function Championship() {
               <div className="flex items-center justify-center gap-6 mt-6">
                 <div className="bg-yellow-950/40 p-4 rounded-xl border border-yellow-500/30">
                   <p className="text-xs text-fifa-green uppercase font-black tracking-widest">Formato</p>
-                  <p className="text-xl font-black text-white">{isCopa ? 'Mata-Mata' : `${campeao.pts} PTS`}</p>
+                  <p className="text-xl font-black text-white">{isCopaPura || isFormatoGrupos ? 'Mata-Mata' : `${campeao.pts} PTS`}</p>
                 </div>
                 <div className="bg-yellow-950/40 p-4 rounded-xl border border-yellow-500/30">
                   <p className="text-xs text-fifa-green uppercase font-black tracking-widest">Prêmio de Temporada</p>
@@ -188,80 +194,6 @@ export default function Championship() {
               {campeao.id === currentUserUid && <p className="text-white font-black tracking-widest uppercase bg-fifa-green py-3 rounded-lg mt-8 shadow-[0_0_20px_rgba(60,172,59,0.4)]">Você escreveu o seu nome na história!</p>}
             </div>
           )}
-
-          {/* GRÁFICO DA CAMPANHA DA TEMPORADA */}
-          {(() => {
-            if (!currentUserUid || !gameState.schedule) return null;
-            
-            const minhaCampanha: ('V' | 'E' | 'D')[] = [];
-            let golsFeitos = 0;
-            let golsSofridos = 0;
-
-            gameState.schedule.forEach(rodada => {
-              if ((isCopa ? rodada.tipo !== 'COPA' : rodada.tipo !== 'LIGA') || !rodada.jogos) return; 
-              const meuJogo = rodada.jogos.find((j: any) => j.homeId === currentUserUid || j.awayId === currentUserUid);
-              
-              if (meuJogo && meuJogo.homeScore !== null && meuJogo.awayScore !== null) {
-                const isCasa = meuJogo.homeId === currentUserUid;
-                const golsMeus = isCasa ? (meuJogo.homeScore ?? 0) : (meuJogo.awayScore ?? 0);
-                const golsDeles = isCasa ? (meuJogo.awayScore ?? 0) : (meuJogo.homeScore ?? 0);
-                
-                golsFeitos += golsMeus;
-                golsSofridos += golsDeles;
-
-                if (golsMeus > golsDeles) minhaCampanha.push('V');
-                else if (golsMeus === golsDeles) minhaCampanha.push('E');
-                else minhaCampanha.push('D');
-              }
-            });
-
-            if (minhaCampanha.length === 0) return null;
-
-            const totalV = minhaCampanha.filter(r => r === 'V').length;
-            const totalE = minhaCampanha.filter(r => r === 'E').length;
-            const totalD = minhaCampanha.filter(r => r === 'D').length;
-
-            return (
-              <div className="max-w-4xl mx-auto bg-neutral-900 p-6 sm:p-8 rounded-3xl border border-neutral-800 shadow-2xl mb-12 animate-fade-in relative overflow-hidden">
-                <h3 className="text-cyan-400 font-black mb-6 uppercase text-xs sm:text-sm tracking-widest border-b border-neutral-800 pb-3 text-center">Resumo da sua Temporada</h3>
-                
-                <div className="flex flex-col md:flex-row items-center gap-8 justify-between">
-                  <div className="flex gap-4 text-center">
-                    <div className="bg-neutral-950 px-6 py-4 rounded-2xl border border-neutral-800 shadow-inner">
-                      <p className="text-3xl font-black text-white">{golsFeitos}</p>
-                      <p className="text-[10px] uppercase text-neutral-500 font-bold tracking-widest mt-1">Gols Pró</p>
-                    </div>
-                    <div className="bg-neutral-950 px-6 py-4 rounded-2xl border border-neutral-800 shadow-inner">
-                      <p className="text-3xl font-black text-neutral-400">{golsSofridos}</p>
-                      <p className="text-[10px] uppercase text-neutral-500 font-bold tracking-widest mt-1">Gols Sofridos</p>
-                    </div>
-                  </div>
-
-                  <div className="flex-1 w-full max-w-lg flex flex-col items-center md:items-end">
-                    <div className="flex gap-4 mb-3 text-[10px] uppercase tracking-widest font-black">
-                      <span className="text-fifa-green">{totalV} Vitórias</span>
-                      {!isCopa && <span className="text-neutral-400">{totalE} Empates</span>}
-                      <span className="text-fifa-red">{totalD} Derrotas</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 justify-center md:justify-end">
-                      {minhaCampanha.map((resultado, i) => (
-                        <div 
-                          key={i} 
-                          title={`Partida ${i+1}`}
-                          className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center rounded text-[10px] sm:text-xs font-black text-neutral-950
-                            ${resultado === 'V' ? 'bg-fifa-green shadow-[0_0_8px_rgba(60,172,59,0.5)]' 
-                            : resultado === 'E' ? 'bg-neutral-400' 
-                            : 'bg-fifa-red shadow-[0_0_8px_rgba(230,29,37,0.5)]'}`}
-                        >
-                          {resultado}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
             <div className="bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-2xl h-fit">
@@ -291,7 +223,7 @@ export default function Championship() {
             {/* TABELA OU RESUMO DE BRACKET FINAL */}
             <div className="lg:col-span-2 bg-neutral-900 p-6 rounded-xl border border-neutral-800 shadow-2xl overflow-x-auto">
               <h2 className="text-xl font-black text-white uppercase tracking-widest border-b border-neutral-800 pb-4 mb-4">Resultado Final</h2>
-              {isCopa ? (
+              {isCopaPura || isFormatoGrupos ? (
                 <div className="space-y-2">
                    {[...(gameState.teams || [])]
                      .map(t => ({
@@ -426,7 +358,7 @@ export default function Championship() {
         <div className="text-center md:text-left">
           <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter">{nomeCampeonato}</h1>
           <p className="text-cyan-400 font-bold tracking-widest uppercase text-xs sm:text-sm mt-1">
-            {isCopa && eventoAtual ? eventoAtual.titulo : `RODADA ${rodadaVerdadeira} DE ${totalRounds}`}
+            {isCopaPura && eventoAtual ? eventoAtual.titulo : `RODADA ${rodadaVerdadeira} DE ${totalRounds}`}
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
@@ -456,9 +388,9 @@ export default function Championship() {
         
         <div className="xl:col-span-2 space-y-8">
           <div className="bg-neutral-900 p-4 sm:p-8 rounded-xl border border-neutral-800 shadow-2xl flex flex-col items-center text-center relative overflow-hidden">
-            <div className={`absolute top-0 left-0 w-full h-2 bg-linear-to-r ${isCopa ? 'from-orange-600 to-orange-300' : (isReturno ? 'from-purple-600 to-purple-300' : 'from-yellow-600 to-yellow-300')}`}></div>
+            <div className={`absolute top-0 left-0 w-full h-2 bg-linear-to-r ${isCopaPura || (isFormatoGrupos && eventoAtual?.tipo === 'COPA') ? 'from-orange-600 to-orange-300' : (isReturno ? 'from-purple-600 to-purple-300' : 'from-yellow-600 to-yellow-300')}`}></div>
             <h2 className="text-xs sm:text-sm font-black text-neutral-500 mb-6 sm:mb-8 uppercase tracking-widest">
-              {isCopa ? 'Decisão no Mata-Mata' : (isReturno ? 'Fase de Returno (2ª Metade)' : 'O Seu Próximo Confronto')}
+              {isCopaPura || (isFormatoGrupos && eventoAtual?.tipo === 'COPA') ? 'Decisão no Mata-Mata' : (isReturno ? 'Fase de Returno (2ª Metade)' : 'O Seu Próximo Confronto')}
             </h2>
             
             <div className="flex items-center justify-center gap-2 sm:gap-6 w-full mb-8 sm:mb-10">
@@ -501,7 +433,7 @@ export default function Championship() {
         </div>
 
         {/* CHAVEAMENTO COMPLETO (BRACKET DINÂMICO PARA MATA-MATA) */}
-        {isCopa ? (
+        {isCopaPura || (isFormatoGrupos && eventoAtual?.tipo === 'COPA' || eventoAtual?.tipo === 'SORTEIO_MATA_MATA') ? (
           <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-2xl flex flex-col h-fit">
             <h2 className="text-lg sm:text-xl font-black text-white mb-4 sm:mb-6 uppercase tracking-widest border-b border-neutral-800 pb-2 sm:pb-4 flex items-center justify-between">
               Chaveamento da Copa
@@ -510,7 +442,6 @@ export default function Championship() {
             <div className="space-y-6 overflow-y-auto max-h-115 custom-scrollbar pr-2">
               {gameState.schedule?.filter(e => e.tipo === 'COPA')
                 .sort((a, b) => {
-                  // Se a fase atual estiver concluída, joga para baixo
                   const aConcluida = a.jogos.every(j => j.homeScore !== null);
                   const bConcluida = b.jogos.every(j => j.homeScore !== null);
                   return aConcluida === bConcluida ? 0 : aConcluida ? 1 : -1;
@@ -529,25 +460,56 @@ export default function Championship() {
                   <div className="grid grid-cols-1 gap-2.5">
                     {fase.jogos.map((jogo, jIdx) => {
                       const isMeuJogo = jogo.homeId === currentUserUid || jogo.awayId === currentUserUid;
+                      
+                      // CÁLCULO DO PLACAR AGREGADO (Se for jogo de volta, procura o jogo de ida e soma)
+                      let agregadoHome = jogo.homeScore;
+                      let agregadoAway = jogo.awayScore;
+                      let temAgregado = false;
+                      
+                      if (fase.titulo.includes('(Volta)')) {
+                         const faseIda = gameState.schedule?.find(f => f.titulo === fase.titulo.replace('(Volta)', '(Ida)'));
+                         if (faseIda) {
+                            const jogoIda = faseIda.jogos.find(j => j.homeId === jogo.awayId && j.awayId === jogo.homeId);
+                            if (jogoIda && jogoIda.homeScore !== null && jogo.homeScore !== null) {
+                               temAgregado = true;
+                               agregadoHome = (jogo.homeScore || 0) + (jogoIda.awayScore || 0);
+                               agregadoAway = (jogo.awayScore || 0) + (jogoIda.homeScore || 0);
+                            }
+                         }
+                      }
+                      
                       return (
                         <div key={jIdx} className={`p-3 rounded-lg border text-xs flex flex-col gap-2 transition-all ${isMeuJogo ? 'bg-yellow-900/10 border-yellow-500/40 shadow-md' : 'bg-neutral-900/40 border-neutral-800/80'}`}>
-                          <div className="flex justify-between items-center font-bold">
+                          <div className="flex justify-between items-center font-bold relative">
                             <span className={`truncate max-w-37.5 uppercase ${jogo.homeId === currentUserUid ? 'text-fifa-green font-black' : 'text-neutral-300'}`}>
                               {getNomeClube(jogo.homeId)}
                             </span>
-                            <span className="font-black text-sm text-white bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">
-                              {jogo.homeScore !== null ? jogo.homeScore : '-'}
-                            </span>
+                            <div className="flex items-center gap-2">
+                               {temAgregado && <span className="text-[9px] text-neutral-500 font-black">({agregadoHome})</span>}
+                               <span className="font-black text-sm text-white bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">
+                                 {jogo.homeScore !== null ? jogo.homeScore : '-'}
+                               </span>
+                            </div>
                           </div>
                           
                           <div className="flex justify-between items-center font-bold">
                             <span className={`truncate max-w-37.5 uppercase ${jogo.awayId === currentUserUid ? 'text-fifa-green font-black' : 'text-neutral-300'}`}>
                               {getNomeClube(jogo.awayId)}
                             </span>
-                            <span className="font-black text-sm text-white bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">
-                              {jogo.awayScore !== null ? jogo.awayScore : '-'}
-                            </span>
+                            <div className="flex items-center gap-2">
+                               {temAgregado && <span className="text-[9px] text-neutral-500 font-black">({agregadoAway})</span>}
+                               <span className="font-black text-sm text-white bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">
+                                 {jogo.awayScore !== null ? jogo.awayScore : '-'}
+                               </span>
+                            </div>
                           </div>
+                          
+                          {/* Indica se houve pênaltis no relatório deste jogo */}
+                          {jogo.relatorio && jogo.relatorio.some((r:any) => r.minuto === 120) && (
+                             <p className="text-[8px] text-center text-orange-400 font-black tracking-widest mt-1 border-t border-neutral-800/50 pt-1">
+                               Decidido nos Pênaltis
+                             </p>
+                          )}
                         </div>
                       );
                     })}
@@ -560,44 +522,95 @@ export default function Championship() {
             </p>
           </div>
         ) : (
-          /* TABELA DE CLASSIFICAÇÃO TRADICIONAL PARA LIGA */
+          /* TABELAS DE CLASSIFICAÇÃO (LIGA OU GRUPOS) */
           <div className="bg-neutral-900 p-4 sm:p-6 rounded-xl border border-neutral-800 shadow-2xl flex flex-col h-fit">
-            <h2 className="text-lg sm:text-xl font-black text-white mb-4 sm:mb-6 uppercase tracking-widest border-b border-neutral-800 pb-2 sm:pb-4">Tabela de Classificação</h2>
+            <h2 className="text-lg sm:text-xl font-black text-white mb-4 sm:mb-6 uppercase tracking-widest border-b border-neutral-800 pb-2 sm:pb-4">
+              {isFormatoGrupos ? 'Fase de Grupos' : 'Tabela de Classificação'}
+            </h2>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-75">
-                <thead>
-                  <tr className="text-[8px] sm:text-[10px] text-neutral-500 uppercase tracking-widest border-b border-neutral-800">
-                    <th className="pb-2 sm:pb-3 w-6 sm:w-8 text-center">#</th>
-                    <th className="pb-2 sm:pb-3">Clube</th>
-                    <th className="pb-2 sm:pb-3 text-center text-yellow-500">PTS</th>
-                    <th className="pb-2 sm:pb-3 text-center">J</th>
-                    <th className="pb-2 sm:pb-3 text-center">V</th>
-                    <th className="pb-2 sm:pb-3 text-center">SG</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {gameState.standings?.map((time, index) => {
-                    const isUser = gameState.teams?.find(t => t.id === time.id)?.isUser;
+              
+              {isFormatoGrupos ? (
+                // RENDERIZAÇÃO MÚLTIPLA POR GRUPOS
+                <div className="space-y-6">
+                  {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map(letraGrupo => {
+                    const timesDoGrupo = gameState.standings?.filter((t:any) => t.grupo === letraGrupo);
+                    if (!timesDoGrupo || timesDoGrupo.length === 0) return null;
+                    
                     return (
-                      <tr key={time.id} className={`text-[10px] sm:text-sm border-b border-neutral-800/50 hover:bg-neutral-800 transition-colors ${time.id === currentUserUid ? 'bg-fifa-blue/20' : ''}`}>
-                        <td className={`py-3 sm:py-4 text-center font-black ${getCorTabela(index)}`}>{index + 1}</td>
-                        <td className={`py-3 sm:py-4 font-black uppercase tracking-tighter truncate max-w-24 sm:max-w-35 ${time.id === currentUserUid ? 'text-fifa-green' : (isUser ? 'text-white' : 'text-neutral-400')}`}>{getNomeClube(time.id)}</td>
-                        <td className="py-3 sm:py-4 text-center font-black text-white bg-neutral-950/50 rounded">{time.pts}</td>
-                        <td className="py-3 sm:py-4 text-center text-neutral-400 font-bold">{time.j}</td>
-                        <td className="py-3 sm:py-4 text-center text-neutral-400 font-bold">{time.v}</td>
-                        <td className="py-3 sm:py-4 text-center text-neutral-400 font-bold">{time.sg > 0 ? `+${time.sg}` : time.sg}</td>
-                      </tr>
+                      <div key={letraGrupo} className="bg-neutral-950 p-3 rounded-lg border border-neutral-800">
+                        <h3 className="text-xs font-black text-yellow-500 uppercase tracking-widest mb-2 px-2 border-b border-neutral-800/50 pb-2">Grupo {letraGrupo}</h3>
+                        <table className="w-full text-left border-collapse min-w-75">
+                          <thead>
+                            <tr className="text-[8px] sm:text-[10px] text-neutral-500 uppercase tracking-widest border-b border-neutral-800">
+                              <th className="pb-2 sm:pb-3 w-6 sm:w-8 text-center">#</th>
+                              <th className="pb-2 sm:pb-3">Clube</th>
+                              <th className="pb-2 sm:pb-3 text-center text-yellow-500">PTS</th>
+                              <th className="pb-2 sm:pb-3 text-center">V</th>
+                              <th className="pb-2 sm:pb-3 text-center">SG</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {timesDoGrupo.map((time, index) => {
+                              const isMe = time.id === currentUserUid;
+                              return (
+                                <tr key={time.id} className={`text-[10px] sm:text-sm border-b border-neutral-800/50 hover:bg-neutral-800 transition-colors ${isMe ? 'bg-fifa-blue/20 border-y border-y-fifa-blue/40' : ''}`}>
+                                  <td className={`py-3 sm:py-4 text-center font-black ${getCorTabela(index, true)}`}>{index + 1}</td>
+                                  <td className={`py-3 sm:py-4 font-black uppercase tracking-tighter truncate max-w-24 sm:max-w-35 flex items-center gap-2 ${isMe ? 'text-fifa-green' : 'text-white'}`}>
+                                    <span>{getNomeClube(time.id)}</span>
+                                  </td>
+                                  <td className="py-3 sm:py-4 text-center font-black text-white bg-neutral-950/50 rounded">{time.pts}</td>
+                                  <td className="py-3 sm:py-4 text-center text-neutral-400 font-bold">{time.v}</td>
+                                  <td className="py-3 sm:py-4 text-center text-neutral-400 font-bold">{time.sg > 0 ? `+${time.sg}` : time.sg}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     )
                   })}
-                </tbody>
-              </table>
+                </div>
+              ) : (
+                // RENDERIZAÇÃO ÚNICA DA LIGA GIGANTE
+                <table className="w-full text-left border-collapse min-w-75">
+                  <thead>
+                    <tr className="text-[8px] sm:text-[10px] text-neutral-500 uppercase tracking-widest border-b border-neutral-800">
+                      <th className="pb-2 sm:pb-3 w-6 sm:w-8 text-center">#</th>
+                      <th className="pb-2 sm:pb-3">Clube</th>
+                      <th className="pb-2 sm:pb-3 text-center text-yellow-500">PTS</th>
+                      <th className="pb-2 sm:pb-3 text-center">J</th>
+                      <th className="pb-2 sm:pb-3 text-center">V</th>
+                      <th className="pb-2 sm:pb-3 text-center">SG</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gameState.standings?.map((time, index) => {
+                      const isUser = gameState.teams?.find(t => t.id === time.id)?.isUser;
+                      return (
+                        <tr key={time.id} className={`text-[10px] sm:text-sm border-b border-neutral-800/50 hover:bg-neutral-800 transition-colors ${time.id === currentUserUid ? 'bg-fifa-blue/20' : ''}`}>
+                          <td className={`py-3 sm:py-4 text-center font-black ${getCorTabela(index)}`}>{index + 1}</td>
+                          <td className={`py-3 sm:py-4 font-black uppercase tracking-tighter truncate max-w-24 sm:max-w-35 ${time.id === currentUserUid ? 'text-fifa-green' : (isUser ? 'text-white' : 'text-neutral-400')}`}>{getNomeClube(time.id)}</td>
+                          <td className="py-3 sm:py-4 text-center font-black text-white bg-neutral-950/50 rounded">{time.pts}</td>
+                          <td className="py-3 sm:py-4 text-center text-neutral-400 font-bold">{time.j}</td>
+                          <td className="py-3 sm:py-4 text-center text-neutral-400 font-bold">{time.v}</td>
+                          <td className="py-3 sm:py-4 text-center text-neutral-400 font-bold">{time.sg > 0 ? `+${time.sg}` : time.sg}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
-            <div className="mt-4 pt-4 border-t border-neutral-800 text-[8px] sm:text-[10px] font-bold tracking-widest uppercase flex flex-wrap gap-2 sm:gap-4 justify-between">
-              {regras.zona1.vagas > 0 && <span className="text-cyan-400">■ G{tZona1} ({regras.zona1.nome})</span>}
-              {regras.zona2.vagas > 0 && <span className="text-blue-400">■ G{tZona2} ({regras.zona2.nome})</span>}
-              {regras.zona3.vagas > 0 && <span className="text-green-400">■ G{tZona3} ({regras.zona3.nome})</span>}
-              {regras.zona4.vagas > 0 && <span className="text-orange-500">■ Z{regras.zona4.vagas} ({regras.zona4.nome})</span>}
-            </div>
+            
+            {/* LENGENDAS DE ZONAS SÓ PARA LIGA */}
+            {!isFormatoGrupos && (
+              <div className="mt-4 pt-4 border-t border-neutral-800 text-[8px] sm:text-[10px] font-bold tracking-widest uppercase flex flex-wrap gap-2 sm:gap-4 justify-between">
+                {regras.zona1.vagas > 0 && <span className="text-cyan-400">■ G{tZona1} ({regras.zona1.nome})</span>}
+                {regras.zona2.vagas > 0 && <span className="text-blue-400">■ G{tZona2} ({regras.zona2.nome})</span>}
+                {regras.zona3.vagas > 0 && <span className="text-green-400">■ G{tZona3} ({regras.zona3.nome})</span>}
+                {regras.zona4.vagas > 0 && <span className="text-orange-500">■ Z{regras.zona4.vagas} ({regras.zona4.nome})</span>}
+              </div>
+            )}
           </div>
         )}
       </div>

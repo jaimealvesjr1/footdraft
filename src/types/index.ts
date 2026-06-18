@@ -1,5 +1,3 @@
-// src/types/index.ts
-
 export type Posicao = 'GOL' | 'DEF' | 'MEI' | 'ATA';
 
 export interface StatusFisico {
@@ -22,9 +20,11 @@ export interface Clube {
   id: string;
   nome: string;
   ano: number;
+  tags?: string[]; // NOVO: Mapeado para o nosso sistema inteligente de buscas no Admin
   elenco: Jogador[];
 }
 
+// CORREÇÃO: Unimos as duas declarações de TimeTabela em uma só, limpa e completa!
 export interface TimeTabela {
   id: string;
   pts: number;
@@ -35,15 +35,18 @@ export interface TimeTabela {
   gp: number;
   gc: number;
   sg: number;
+  xpGanho?: number;
+  grupo?: string | null; 
 }
 
-// NOVO: Define a estrutura de um evento narrativo da partida
+// CORREÇÃO: Dicionário atualizado com os novos eventos da nossa transmissão
 export type EventoPartida = {
   minuto: number;
-  tipo: 'GOL' | 'CARTAO_AMARELO' | 'CARTAO_VERMELHO' | 'LESAO';
+  tipo: 'GOL' | 'CARTAO_AMARELO' | 'CARTAO_VERMELHO' | 'LESAO' | 'PENALTIS' | 'INFO';
   time: 'CASA' | 'FORA';
   texto: string;
   jogadorId?: string;
+  jogadorNome?: string;
 };
 
 export interface JogoCamp {
@@ -53,29 +56,35 @@ export interface JogoCamp {
   awayScore: number | null;
   relatorio: EventoPartida[]; 
   pressao?: { minuto: number; valor: number }[];
+  grupoBadge?: string; 
 }
 
-export type GamePhase = 'SETUP' | 'PRE_SEASON' | 'CHAMPIONSHIP' | 'FIRST_HALF' | 'TRANSFER_WINDOW' | 'SECOND_HALF' | 'FINISHED';
+export type GamePhase = 'SETUP' | 'PRE_SEASON' | 'TRANSFER_WINDOW' | 'FIRST_HALF' | 'SECOND_HALF' | 'CHAMPIONSHIP' | 'FINISHED';
 
-// NOVO: Define a identidade de cada momento do calendário
-export type TipoEventoCalendario = 'LIGA' | 'COPA' | 'TRANSFERENCIAS';
+export type TipoEventoCalendario = 'LIGA' | 'COPA' | 'TRANSFERENCIAS' | 'LIGA_GRUPOS' | 'SORTEIO_MATA_MATA';
 
 export interface RodadaCalendario {
   tipo: TipoEventoCalendario;
-  titulo: string; // Ex: "Brasileirão - Rodada 1" ou "Copa do Brasil - Final (Volta)"
+  titulo: string; 
   jogos: JogoCamp[];
+  decidirCopa?: boolean;
 }
 
 export interface GameState {
   phase: GamePhase;
-  currentRound: number; // Agora o currentRound aponta para o index do Master Calendar
+  currentRound: number; 
+  draftRound?: number; // NOVO: Independência de rodada para a tela do Draft
   draftOrder?: string[];
   draftTurnUid?: string | null;
   draftDeadline?: number | null;
   playersReady: string[];
+  playersInLive?: string[]; // NOVO: Controle de quem já chegou no estádio para a Transmissão
   currentPack?: Jogador[];
   currentPicks?: Jogador[];
   teams?: { id: string; nome: string; isUser: boolean; }[];
   standings?: TimeTabela[];
-  schedule?: RodadaCalendario[]; // NOVO: Substituímos o array genérico por Rodadas com Identidade
+  schedule?: RodadaCalendario[]; 
+  nomeCampeonato?: string;
+  totalTeams?: number;
+  regrasClassificacao?: any;
 }

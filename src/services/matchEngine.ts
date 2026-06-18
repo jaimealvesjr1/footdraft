@@ -2,7 +2,7 @@ import { type Jogador } from '../types';
 
 export type EventoPartida = {
   minuto: number;
-  tipo: 'GOL' | 'CARTAO_AMARELO' | 'CARTAO_VERMELHO' | 'LESAO';
+  tipo: 'GOL' | 'CARTAO_AMARELO' | 'CARTAO_VERMELHO' | 'LESAO' | 'PENALTIS' | 'INFO';
   time: 'CASA' | 'FORA';
   texto: string;
   jogadorId?: string;
@@ -142,16 +142,16 @@ const sortearJogador = (team: (Jogador | null)[], expulsos: Set<string>, acao: '
     const isMeio = posUpper === 'MEI';
     
     if (acao === 'ATAQUE') {
-      if (isGoleiro) return 0; 
+      if (isGoleiro) return 0; // Goleiro não faz gol
       return isAtacante ? 5 : isMeio ? 3 : 1;
     }
     
-    // Na Defesa (Faltas/Lesões), o Goleiro tem peso 1 (pode se machucar ou fazer falta)
-    return isDefesa ? 4 : isMeio ? 3 : 1;
+    if (isGoleiro) return 1; 
+    return isDefesa ? 5 : isMeio ? 3 : 2;
   });
 
   const totalPesos = pesos.reduce((a, b) => a + b, 0);
-  if (totalPesos === 0) return null; // Trava de segurança
+  if (totalPesos === 0) return null; 
 
   let rand = Math.random() * totalPesos;
   return aptos.find((_, i) => (rand -= pesos[i]) <= 0) || aptos[0];
@@ -166,11 +166,16 @@ export function simularPartidaV2(teamA: (Jogador | null)[], teamB: (Jogador | nu
 
   let golsA = 0; let golsB = 0;
   
+  // Fator Casa: Bônus de 5% na força do mandante (teamA)
+  const BÔNUS_CASA = 1.03;
+
   const statsA = calcularForcaEquipe(teamA, expulsos, config.isUserA, config.rodada);
   const statsB = calcularForcaEquipe(teamB, expulsos, config.isUserB, config.rodada);
 
   const isPvP = config.isUserA && config.isUserB;
-  let forcaA = statsA.forca * (isPvP ? 1.0 : (0.85 + Math.random() * 0.30));
+  
+  // Aplica o bônus apenas ao Time A (Mandante)
+  let forcaA = (statsA.forca * BÔNUS_CASA) * (isPvP ? 1.0 : (0.85 + Math.random() * 0.30));
   let forcaB = statsB.forca * (isPvP ? 1.0 : (0.85 + Math.random() * 0.30));
   
   const mentA = config.mentalidadeA || 'EQUILIBRADA';

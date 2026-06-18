@@ -276,43 +276,6 @@ export default function TransferWindow({ uid }: { uid: string }) {
         </div>
       )}
 
-      {/* BANNER DE TURNO */}
-      <div className={`p-4 rounded-xl font-black uppercase tracking-widest text-center mb-8 border-2 transition-all ${jaPronto ? 'bg-neutral-900 border-neutral-800 text-neutral-500' : 'bg-fifa-green/20 border-fifa-green text-fifa-green shadow-[0_0_15px_rgba(60,172,59,0.2)]'}`}>
-        {jaPronto ? '✅ MERCADO ENCERRADO PARA VOCÊ. AGUARDANDO ADVERSÁRIOS.' : '⏱️ MERCADO ABERTO! ESCOLHA QUEM ENTRA E QUEM SAI.'}
-      </div>
-
-      {!jaPronto && (
-        <div className="flex flex-wrap gap-4 mb-8 justify-center">
-          
-          {etapaTroca === 'SELECIONAR_SAIDA' && (
-            <button 
-              disabled={jogadoresParaSair.length === 0}
-              onClick={travarSaidasEGerarOpcoes}
-              className="px-6 py-3 bg-fifa-blue hover:bg-opacity-80 disabled:opacity-50 font-black uppercase tracking-widest rounded shadow-[0_0_15px_rgba(42,57,141,0.4)] transition-colors text-white"
-            >
-              Confirmar {jogadoresParaSair.length} Saída(s) e Ver Opções 🔒
-            </button>
-          )}
-
-          {etapaTroca === 'SELECIONAR_ENTRADAS' && (
-            <button 
-              disabled={!todasVagasPreenchidas || carregando}
-              onClick={confirmarTrocasEmMassa}
-              className="px-6 py-3 bg-fifa-green hover:bg-opacity-80 disabled:opacity-50 font-black uppercase tracking-widest rounded shadow-[0_0_15px_rgba(60,172,59,0.4)] transition-colors text-white"
-            >
-              {carregando ? 'Processando...' : `Efetuar ${substituicoes.length} Transferência(s) ♻️`}
-            </button>
-          )}
-          
-          <button 
-            onClick={() => encerrarMinhasTrocas(true)}
-            className="px-6 py-3 bg-neutral-900 hover:bg-fifa-red/20 border border-neutral-800 hover:border-fifa-red/50 font-bold uppercase rounded-xl transition-colors text-fifa-red"
-          >
-            Encerrar Minhas Trocas (Finalizar)
-          </button>
-        </div>
-      )}
-
       {/* ÁREA DE SELEÇÃO */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         

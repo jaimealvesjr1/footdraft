@@ -10,6 +10,7 @@ interface JogoAoVivo {
   golsCasaFinal: number; golsForaFinal: number; golsCasaLive: number; golsForaLive: number;
   relatorioFinal: EventoPartida[]; eventosLive: EventoPartida[];
   pressaoFinal: { minuto: number, valor: number }[]; pressaoLive: { minuto: number, valor: number }[]; 
+  golsIdaCasa: number; golsIdaFora: number; temAgregado: boolean;
 }
 
 export default function Matches() {
@@ -22,10 +23,11 @@ export default function Matches() {
   const [partidasAoVivo, setPartidasAoVivo] = useState<JogoAoVivo[]>([]);
   const [rodadaSendoTransmitida, setRodadaSendoTransmitida] = useState<number>(1);
   
+  const [posJogoLiberado, setPosJogoLiberado] = useState(false); // NOVO ESTADO DE SUSPENSE
+
   const rodadaEsperadaRef = useRef<number | null>(null);
   const [meuTimeValido, setMeuTimeValido] = useState(true);
 
-  // OUVINDO O STATUS DO TIME PARA O FIM DO JOGO
   useEffect(() => {
     if (!currentUserUid) return;
     const unsubUser = onSnapshot(doc(db, "usuarios", currentUserUid), (snap) => {
@@ -58,7 +60,6 @@ export default function Matches() {
     return () => unsubUser();
   }, [currentUserUid]);
 
-  // A TV APENAS ESCUTA O SERVIDOR
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "game", "state"), (docSnap) => {
       if (docSnap.exists()) {
@@ -66,13 +67,23 @@ export default function Matches() {
         setGameState(data);
         
         if (data.schedule) {
-          const indexNaoSimulada = data.schedule?.findIndex((r: any) => r.jogos[0]?.homeScore == null) ?? -1;
+          const indexNaoSimulada = data.schedule?.findIndex((r: any) => {
+            if (!r.jogos || r.jogos.length === 0) return false;
+            return r.jogos[0]?.homeScore == null; 
+          }) ?? -1;
+
           const rodadaAlvo = indexNaoSimulada !== -1 ? indexNaoSimulada : (data.schedule?.length ?? 0);
 
           if (rodadaEsperadaRef.current === null) {
             rodadaEsperadaRef.current = rodadaAlvo;
           } else if (rodadaEsperadaRef.current < rodadaAlvo && !simulacaoAoVivo) {
-            iniciarPlayback(data, rodadaEsperadaRef.current);
+            let indexParaTocar = rodadaAlvo - 1;
+            while (indexParaTocar >= 0 && (!data.schedule[indexParaTocar].jogos || data.schedule[indexParaTocar].jogos.length === 0)) {
+                indexParaTocar--;
+            }
+            if (indexParaTocar >= 0 && indexParaTocar >= rodadaEsperadaRef.current) {
+                iniciarPlayback(data, indexParaTocar);
+            }
             rodadaEsperadaRef.current = rodadaAlvo; 
           }
         }
@@ -87,6 +98,7 @@ export default function Matches() {
       setMinuto((prevMinuto) => {
         if (prevMinuto >= 90) {
           clearInterval(timer);
+          setTimeout(() => setPosJogoLiberado(true), 2500); // 2.5 Segundos de suspense!
           return 90; 
         }
         return prevMinuto + 1;
@@ -94,6 +106,17 @@ export default function Matches() {
     }, 150); 
     return () => clearInterval(timer);
   }, [simulacaoAoVivo]);
+
+  // Libera os eventos de Pênaltis quando o suspense terminar
+  useEffect(() => {
+    if (posJogoLiberado) {
+       setPartidasAoVivo(partidas => partidas.map(p => {
+           const eventosExtras = p.relatorioFinal.filter(e => e.minuto > 90);
+           if (eventosExtras.length === 0) return p;
+           return { ...p, eventosLive: [...eventosExtras, ...p.eventosLive] };
+       }));
+    }
+  }, [posJogoLiberado]);
 
   useEffect(() => {
     if (minuto === 0 || minuto > 90) return;
@@ -125,10 +148,29 @@ export default function Matches() {
   const iniciarPlayback = (dataSnapshot: GameState, rodadaIndex: number) => {
     if (!dataSnapshot.schedule) return;
     
-    const jogosDaRodada = dataSnapshot.schedule[rodadaIndex]?.jogos || [];
+    const faseAtual = dataSnapshot.schedule[rodadaIndex];
+    const jogosDaRodada = faseAtual?.jogos || [];
     const preparacaoAoVivo: JogoAoVivo[] = [];
 
+    let faseIda: any = null;
+    if (faseAtual.titulo.includes('(Volta)')) {
+       faseIda = dataSnapshot.schedule.find(f => f.titulo === faseAtual.titulo.replace('(Volta)', '(Ida)'));
+    }
+
     jogosDaRodada.forEach((jogo: any) => {
+      let golsIdaCasa = 0;
+      let golsIdaFora = 0;
+      let temAgregado = false;
+
+      if (faseIda) {
+         const jogoIda = faseIda.jogos.find((j: any) => j.homeId === jogo.awayId && j.awayId === jogo.homeId);
+         if (jogoIda && jogoIda.homeScore !== null) {
+            temAgregado = true;
+            golsIdaCasa = jogoIda.awayScore || 0;
+            golsIdaFora = jogoIda.homeScore || 0;
+         }
+      }
+
       preparacaoAoVivo.push({
         timeA: jogo.homeId, timeB: jogo.awayId,
         nomeTimeA: dataSnapshot.teams?.find(t => t.id === jogo.homeId)?.nome || "Casa",
@@ -137,20 +179,19 @@ export default function Matches() {
         golsCasaLive: 0, golsForaLive: 0,
         relatorioFinal: jogo.relatorio || [], eventosLive: [],
         pressaoFinal: jogo.pressao || [], pressaoLive: [],
+        golsIdaCasa, golsIdaFora, temAgregado
       });
     });
 
     setRodadaSendoTransmitida(rodadaIndex + 1);
     setPartidasAoVivo(preparacaoAoVivo);
     setMinuto(0);
+    setPosJogoLiberado(false);
     setSimulacaoAoVivo(true);
   };
 
   if (!gameState) return <div className="h-screen bg-neutral-950 flex items-center justify-center"><p className="text-yellow-500 font-bold animate-pulse tracking-widest uppercase text-sm sm:text-base">Conectando à Central de TV...</p></div>;
 
-  // ==========================================
-  // TELA DE ESPERA COM "DEDODURO" DE ATRASADOS
-  // ==========================================
   if (!simulacaoAoVivo) {
     const timesFaltando = gameState?.teams?.filter(t => t.isUser && !(gameState as any)?.playersInLive?.includes(t.id)) || [];
 
@@ -161,20 +202,13 @@ export default function Matches() {
           <h1 className="text-3xl sm:text-4xl font-black text-white uppercase tracking-tighter mb-2 sm:mb-4">
             Transmissão <span className="text-fifa-red">Ao Vivo</span>
           </h1>
-          <p className="text-neutral-400 font-bold tracking-widest uppercase mb-4 text-xs sm:text-sm">
-            Aguardando Início
-          </p>
+          <p className="text-neutral-400 font-bold tracking-widest uppercase mb-4 text-xs sm:text-sm">Aguardando Início</p>
           
           <div className="my-8 sm:my-14 animate-fade-in">
             <div className="w-12 h-12 sm:w-16 sm:h-16 border-4 border-neutral-800 border-t-yellow-500 rounded-full animate-spin mx-auto mb-4 sm:mb-6"></div>
-            <h2 className="text-xl sm:text-3xl font-black text-white uppercase tracking-widest animate-pulse">
-              Aguardando o Apito Inicial
-            </h2>
-            <p className="text-neutral-500 text-[10px] sm:text-xs mt-3 font-bold uppercase tracking-widest">
-              A torcida está chegando no estádio...
-            </p>
+            <h2 className="text-xl sm:text-3xl font-black text-white uppercase tracking-widest animate-pulse">Aguardando o Apito Inicial</h2>
+            <p className="text-neutral-500 text-[10px] sm:text-xs mt-3 font-bold uppercase tracking-widest">A torcida está chegando no estádio...</p>
 
-            {/* LISTA QUEM AINDA NÃO CHEGOU NA TV */}
             {timesFaltando.length > 0 ? (
                <div className="mt-8 p-4 bg-neutral-950 rounded-xl border border-neutral-800 inline-block text-center w-full shadow-inner">
                   <p className="text-[10px] text-orange-500 font-bold uppercase tracking-widest mb-3">Técnicos Atrasados:</p>
@@ -187,9 +221,7 @@ export default function Matches() {
                   </div>
                </div>
             ) : (
-               <p className="text-fifa-green font-black text-xs sm:text-sm uppercase tracking-widest mt-8 animate-pulse">
-                  Times em campo!
-               </p>
+               <p className="text-fifa-green font-black text-xs sm:text-sm uppercase tracking-widest mt-8 animate-pulse">Times em campo!</p>
             )}
           </div>
 
@@ -201,71 +233,124 @@ export default function Matches() {
     );
   }
 
-  // TELA DE TRANSMISSÃO
-  // ==========================================
   const meusJogos = partidasAoVivo.filter(j => j.timeA === currentUserUid || j.timeB === currentUserUid);
   const outrosJogos = partidasAoVivo.filter(j => j.timeA !== currentUserUid && j.timeB !== currentUserUid);
   const temJogo = meusJogos.length > 0;
+  const tituloRodadaTV = gameState?.schedule?.[rodadaSendoTransmitida - 1]?.titulo || `Multicast - Rodada ${rodadaSendoTransmitida}`;
 
-  // Função isolada que renderiza a "TV Gigante" (Pressão e Lances) para ser reutilizável
-  const renderJogoCompleto = (jogo: JogoAoVivo, i: number) => (
-    <div key={i} className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden shadow-2xl flex flex-col min-h-100 sm:min-h-125">
-      <div className="p-4 sm:p-8 pb-4 bg-neutral-950 flex justify-between items-center shrink-0">
-        <span className={`font-black uppercase tracking-tighter flex-1 text-right truncate pr-2 sm:pr-6 text-sm sm:text-2xl md:text-3xl ${jogo.timeA === currentUserUid ? 'text-yellow-400' : 'text-neutral-400'}`} title={jogo.nomeTimeA}>{jogo.nomeTimeA}</span>
-        <div className="flex items-center gap-2 sm:gap-6 bg-neutral-900 px-3 sm:px-8 py-2 sm:py-4 rounded-xl border border-neutral-800 shadow-inner">
-          <span className={`font-black text-3xl sm:text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsCasaLive > 0 ? 'text-fifa-green scale-110' : 'text-white'}`}>{jogo.golsCasaLive}</span>
-          <span className="text-neutral-600 font-black text-xl sm:text-3xl">X</span>
-          <span className={`font-black text-3xl sm:text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsForaLive > 0 ? 'text-fifa-green scale-110' : 'text-white'}`}>{jogo.golsForaLive}</span>
+  const renderJogoCompleto = (jogo: JogoAoVivo, i: number) => {
+    // Determina se o Modal de Pênaltis vai engolir a tela inteira desse jogo
+    const temPenaltis = posJogoLiberado && jogo.eventosLive.some((e:any) => e.tipo === 'PENALTIS');
+
+    return (
+      <div key={i} className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden shadow-2xl flex flex-col min-h-100 sm:min-h-125 relative">
+        <div className={`p-4 sm:p-8 ${jogo.temAgregado ? 'pb-8 sm:pb-10' : 'pb-4'} bg-neutral-950 flex justify-between items-center shrink-0 relative`}>
+          <span className={`font-black uppercase tracking-tighter flex-1 text-right truncate pr-2 sm:pr-6 text-sm sm:text-2xl md:text-3xl ${jogo.timeA === currentUserUid ? 'text-yellow-400' : 'text-neutral-400'}`} title={jogo.nomeTimeA}>{jogo.nomeTimeA}</span>
+          <div className="flex flex-col items-center relative z-10">
+            <div className="flex items-center gap-2 sm:gap-6 bg-neutral-900 px-3 sm:px-8 py-2 sm:py-4 rounded-xl border border-neutral-800 shadow-inner">
+              <span className={`font-black text-3xl sm:text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsCasaLive > 0 ? 'text-fifa-green scale-110' : 'text-white'}`}>{jogo.golsCasaLive}</span>
+              <span className="text-neutral-600 font-black text-xl sm:text-3xl">X</span>
+              <span className={`font-black text-3xl sm:text-6xl transition-all duration-300 ${minuto > 0 && jogo.golsForaLive > 0 ? 'text-fifa-green scale-110' : 'text-white'}`}>{jogo.golsForaLive}</span>
+            </div>
+            {jogo.temAgregado && (
+              <div className="absolute -bottom-4 sm:-bottom-5 left-1/2 -translate-x-1/2 text-[9px] sm:text-[11px] text-neutral-400 font-black tracking-widest bg-neutral-950 border border-neutral-800 px-3 sm:px-4 py-0.5 rounded-full shadow-md whitespace-nowrap">
+                AGG: ({jogo.golsIdaCasa + jogo.golsCasaLive}) - ({jogo.golsIdaFora + jogo.golsForaLive})
+              </div>
+            )}
+          </div>
+          <span className={`font-black uppercase tracking-tighter flex-1 text-left truncate pl-2 sm:pl-6 text-sm sm:text-2xl md:text-3xl ${jogo.timeB === currentUserUid ? 'text-yellow-400' : 'text-neutral-400'}`} title={jogo.nomeTimeB}>{jogo.nomeTimeB}</span>
         </div>
-        <span className={`font-black uppercase tracking-tighter flex-1 text-left truncate pl-2 sm:pl-6 text-sm sm:text-2xl md:text-3xl ${jogo.timeB === currentUserUid ? 'text-yellow-400' : 'text-neutral-400'}`} title={jogo.nomeTimeB}>{jogo.nomeTimeB}</span>
-      </div>
-      <div className="px-4 sm:px-8 pb-4 sm:pb-6 bg-neutral-950 border-b border-neutral-800">
-        <div className="flex justify-between text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-neutral-500 mb-2">
-          <span className="text-yellow-500">Pressão Casa</span><span className="hidden sm:inline">Momentum</span><span className="text-white">Pressão Fora</span>
-        </div>
-        <div className="relative w-full h-12 sm:h-20 bg-neutral-900/50 rounded-lg border border-neutral-800/50 flex items-center px-1 overflow-hidden">
-          <div className="absolute top-1/2 left-0 w-full h-px bg-neutral-700/50 z-0"></div>
-          <div className="flex w-full h-full items-center gap-0.5 sm:gap-1 z-10">
-            {Array.from({ length: 18 }).map((_, idx) => {
-              const ponto = jogo.pressaoLive[idx];
-              if (!ponto) return <div key={idx} className="flex-1 h-full"></div>;
-              const isCasa = ponto.valor > 0;
-              const alturaPercentual = Math.min(100, Math.abs(ponto.valor));
-              return (
-                <div key={idx} className="flex-1 h-full flex flex-col group relative">
-                  <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none">
-                    {ponto.minuto}'
+        
+        <div className="px-4 sm:px-8 pb-4 sm:pb-6 bg-neutral-950 border-b border-neutral-800">
+          <div className="flex justify-between text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-neutral-500 mb-2">
+            <span className="text-yellow-500">Pressão Casa</span><span className="hidden sm:inline">Momentum</span><span className="text-white">Pressão Fora</span>
+          </div>
+          <div className="relative w-full h-12 sm:h-20 bg-neutral-900/50 rounded-lg border border-neutral-800/50 flex items-center px-1 overflow-hidden">
+            <div className="absolute top-1/2 left-0 w-full h-px bg-neutral-700/50 z-0"></div>
+            <div className="flex w-full h-full items-center gap-0.5 sm:gap-1 z-10">
+              {Array.from({ length: 18 }).map((_, idx) => {
+                const ponto = jogo.pressaoLive[idx];
+                if (!ponto) return <div key={idx} className="flex-1 h-full"></div>;
+                const isCasa = ponto.valor > 0;
+                const alturaPercentual = Math.min(100, Math.abs(ponto.valor));
+                return (
+                  <div key={idx} className="flex-1 h-full flex flex-col group relative">
+                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20 pointer-events-none">{ponto.minuto}'</div>
+                    <div className="h-1/2 w-full flex items-end">{isCasa && <div className="w-full bg-fifa-green shadow-[0_0_8px_rgba(60,172,59,0.6)] rounded-t-sm" style={{ height: `${alturaPercentual}%` }}></div>}</div>
+                    <div className="h-1/2 w-full flex items-start">{!isCasa && <div className="w-full bg-fifa-blue shadow-[0_0_8px_rgba(42,57,141,0.6)] rounded-b-sm" style={{ height: `${alturaPercentual}%` }}></div>}</div>
                   </div>
-                  <div className="h-1/2 w-full flex items-end">{isCasa && <div className="w-full bg-fifa-green shadow-[0_0_8px_rgba(60,172,59,0.6)] rounded-t-sm" style={{ height: `${alturaPercentual}%` }}></div>}</div>
-                  <div className="h-1/2 w-full flex items-start">{!isCasa && <div className="w-full bg-fifa-blue shadow-[0_0_8px_rgba(42,57,141,0.6)] rounded-b-sm" style={{ height: `${alturaPercentual}%` }}></div>}</div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
-      <div className="p-4 sm:p-6 flex-1 overflow-y-auto custom-scrollbar bg-neutral-900/50 h-full">
-        {jogo.eventosLive.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-neutral-600 italic font-bold text-sm sm:text-lg tracking-widest text-center">A bola está rolando...</div>
-        ) : (
-          <div className="space-y-3 sm:space-y-4 flex flex-col">
-            {jogo.eventosLive.map((evento, idx) => {
-              const isMandante = evento.time === 'CASA';
-              return (
-                <div key={idx} className={`flex w-full ${isMandante ? 'justify-start' : 'justify-end'} animate-fade-in`}>
-                  <div className={`max-w-[85%] sm:max-w-[70%] border-l-4 pl-3 sm:pl-4 py-2 sm:py-3 flex items-start gap-3 sm:gap-4 rounded-r-lg
-                    ${evento.tipo === 'GOL' ? 'border-fifa-green bg-fifa-green/10' : evento.tipo === 'CARTAO_VERMELHO' ? 'border-fifa-red bg-fifa-red/10' : evento.tipo === 'CARTAO_AMARELO' ? 'border-yellow-500 bg-yellow-500/10' : 'border-fifa-blue bg-fifa-blue/10'}`}>
-                    <span className="font-black text-white w-8 sm:w-10 shrink-0 text-sm sm:text-xl text-center">{evento.minuto}'</span>
-                    <span className="text-neutral-300 font-medium leading-snug sm:leading-tight text-xs sm:text-base mt-0.5">{evento.texto}</span>
+
+        <div className="p-4 sm:p-6 flex-1 overflow-y-auto custom-scrollbar bg-neutral-900/50 h-full relative">
+          
+          {/* TELA DE DECISÃO POR PÊNALTIS (SOBREPOSIÇÃO) */}
+          {temPenaltis && (
+             <div className="absolute inset-0 bg-neutral-950/90 backdrop-blur-md z-30 flex items-center justify-center p-6 animate-fade-in rounded-xl">
+               {(() => {
+                  const penaltiEvent = jogo.eventosLive.find((e:any) => e.tipo === 'PENALTIS');
+                  const placarMatch = penaltiEvent?.texto.match(/(\d+)x(\d+)/);
+                  return (
+                   <div className="bg-neutral-900 border-2 border-orange-500 rounded-xl p-6 sm:p-8 text-center shadow-[0_0_50px_rgba(249,115,22,0.4)] max-w-lg w-full transform transition-transform duration-500 scale-100 hover:scale-105">
+                     <span className="text-4xl block mb-4 animate-bounce">⚽</span>
+                     <h3 className="text-orange-500 font-black text-2xl sm:text-3xl uppercase tracking-tighter mb-6">Decisão por Pênaltis!</h3>
+                     
+                     {placarMatch && (
+                        <div className="flex justify-center items-center gap-6 bg-neutral-950 p-4 rounded-xl border border-orange-500/30 mb-6 shadow-inner">
+                           <div className="flex flex-col items-center">
+                              <span className="text-[10px] text-neutral-400 font-bold uppercase truncate max-w-24">{jogo.nomeTimeA}</span>
+                              <span className="text-5xl font-black text-white">{placarMatch[1]}</span>
+                           </div>
+                           <span className="text-3xl font-black text-neutral-600">X</span>
+                           <div className="flex flex-col items-center">
+                              <span className="text-[10px] text-neutral-400 font-bold uppercase truncate max-w-24">{jogo.nomeTimeB}</span>
+                              <span className="text-5xl font-black text-white">{placarMatch[2]}</span>
+                           </div>
+                        </div>
+                     )}
+                     
+                     <p className="text-white font-bold text-sm sm:text-base leading-snug">
+                       {penaltiEvent?.texto}
+                     </p>
+                   </div>
+                  )
+               })()}
+             </div>
+          )}
+
+          {jogo.eventosLive.filter(e => e.minuto <= 90).length === 0 ? (
+            <div className="h-full flex items-center justify-center text-neutral-600 italic font-bold text-sm sm:text-lg tracking-widest text-center">A bola está rolando...</div>
+          ) : (
+            <div className="space-y-3 sm:space-y-4 flex flex-col relative z-10">
+              {jogo.eventosLive.filter(e => e.minuto <= 90).map((evento, idx) => {
+                const isMandante = evento.time === 'CASA';
+                const isInfo = (evento.tipo as string) === 'INFO';
+                const cardStyle = (evento.tipo as string) === 'GOL' ? 'border-fifa-green bg-fifa-green/10' : 
+                  (evento.tipo as string) === 'CARTAO_VERMELHO' ? 'border-fifa-red bg-fifa-red/10' : 
+                  (evento.tipo as string) === 'CARTAO_AMARELO' ? 'border-yellow-500 bg-yellow-500/10' : 
+                  isInfo ? 'border-cyan-500 bg-cyan-500/10 shadow-[0_0_15px_rgba(6,182,212,0.3)]' :
+                  'border-fifa-blue bg-fifa-blue/10';
+
+                return (
+                  <div key={idx} className={`flex w-full ${isInfo ? 'justify-center my-4' : isMandante ? 'justify-start' : 'justify-end'} animate-fade-in`}>
+                    <div className={`max-w-[85%] sm:max-w-[70%] border-l-4 pl-3 sm:pl-4 py-2 sm:py-3 flex items-start gap-3 sm:gap-4 rounded-r-lg ${cardStyle}`}>
+                      {!isInfo && <span className="font-black text-white w-8 sm:w-10 shrink-0 text-sm sm:text-xl text-center">{evento.minuto}'</span>}
+                      <span className={`${isInfo ? 'text-cyan-400 text-center font-black tracking-widest uppercase' : 'text-neutral-300 font-medium'} leading-snug sm:leading-tight text-xs sm:text-base mt-0.5`}>
+                        {evento.texto}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="p-2 sm:p-4 md:p-8 bg-neutral-950 min-h-screen text-neutral-200 font-fifa flex flex-col">
@@ -275,19 +360,19 @@ export default function Matches() {
         <h2 className="text-sm sm:text-xl font-bold text-red-500 uppercase tracking-widest flex items-center justify-center gap-3 mb-2">
           <img src="/transmissao.png" alt="Cazé TV" className="h-8 sm:h-10 object-contain drop-shadow-md shrink-0" />
           <span className="w-2 h-2 sm:w-3 sm:h-3 bg-red-500 rounded-full animate-ping shrink-0"></span>          
-          <span className="truncate font-black">Multicast - Rodada {rodadaSendoTransmitida}</span>
+          <span className="truncate font-black">{tituloRodadaTV}</span>
         </h2>
         
         <div className="text-5xl sm:text-6xl font-black font-mono text-white tracking-tighter">{minuto}'</div>
         
-        {minuto >= 90 && (
+        {posJogoLiberado && (
           <button 
             onClick={() => {
               setSimulacaoAoVivo(false);
               if (!meuTimeValido) navigate('/dashboard');
               else navigate('/championship'); 
             }} 
-            className={`mt-4 sm:mt-6 px-4 py-2 sm:px-8 sm:py-3 rounded-xl text-white font-black text-xs sm:text-base uppercase tracking-widest transition-colors shadow-lg 
+            className={`mt-4 sm:mt-6 px-4 py-2 sm:px-8 sm:py-3 rounded-xl text-white font-black text-xs sm:text-base uppercase tracking-widest transition-colors shadow-lg animate-fade-in
               ${!meuTimeValido ? 'bg-fifa-red hover:bg-opacity-80 shadow-fifa-red/50' : 'bg-fifa-blue hover:bg-opacity-80 shadow-fifa-blue/50'}`}
           >
             {!meuTimeValido ? '⚠️ Ir para o CT' : 'Sair do Estádio'}
@@ -296,41 +381,42 @@ export default function Matches() {
       </div>
 
       <div className="max-w-7xl mx-auto w-full flex flex-col xl:flex-row gap-4 sm:gap-8 flex-1 pb-10">
-        
         {temJogo ? (
           <>
-            {/* LÓGICA NORMAL: Jogo do usuário na Esquerda, Outros Jogos compactos na Direita */}
             <div className="flex-1 flex flex-col gap-4">
               <h3 className="text-yellow-500 font-black tracking-widest uppercase mb-2 border-b border-neutral-800 pb-2 text-sm sm:text-base">O Seu Confronto</h3>
               {meusJogos.map((jogo, i) => renderJogoCompleto(jogo, i))}
             </div>
-
             <div className="w-full xl:w-100 flex flex-col gap-4">
               <h3 className="text-neutral-500 font-black tracking-widest uppercase mb-2 border-b border-neutral-800 pb-2 text-sm sm:text-base">Outros Jogos</h3>
               <div className="flex flex-col gap-2 sm:gap-3 overflow-y-auto custom-scrollbar max-h-96 xl:max-h-150 pr-1 sm:pr-2">
                 {outrosJogos.map((jogo, i) => (
-                  <div key={i} className="bg-neutral-900 border border-neutral-800 rounded-xl p-3 sm:p-4 flex justify-between items-center shadow-lg hover:border-neutral-700 transition-colors">
-                    <span className="font-bold text-neutral-400 uppercase tracking-widest flex-1 text-right truncate pr-2 sm:pr-3 text-[10px] sm:text-xs" title={jogo.nomeTimeA}>{jogo.nomeTimeA}</span>
-                    <div className="flex items-center gap-2 sm:gap-3 bg-neutral-950 px-2 sm:px-4 py-1 sm:py-2 rounded-lg border border-neutral-800 shrink-0">
-                      <span className={`font-black text-sm sm:text-xl ${minuto > 0 && jogo.golsCasaLive > 0 ? 'text-yellow-400' : 'text-white'}`}>{jogo.golsCasaLive}</span>
-                      <span className="text-neutral-700 font-black text-[10px] sm:text-xs">X</span>
-                      <span className={`font-black text-sm sm:text-xl ${minuto > 0 && jogo.golsForaLive > 0 ? 'text-yellow-400' : 'text-white'}`}>{jogo.golsForaLive}</span>
+                  <div key={i} className={`bg-neutral-900 border border-neutral-800 rounded-xl p-3 sm:p-4 flex flex-col shadow-lg hover:border-neutral-700 transition-colors ${jogo.temAgregado ? 'pb-4' : ''}`}>
+                    <div className="flex justify-between items-center w-full relative z-10">
+                        <span className="font-bold text-neutral-400 uppercase tracking-widest flex-1 text-right truncate pr-2 sm:pr-3 text-[10px] sm:text-xs" title={jogo.nomeTimeA}>{jogo.nomeTimeA}</span>
+                        <div className="flex items-center gap-2 sm:gap-3 bg-neutral-950 px-2 sm:px-4 py-1 sm:py-2 rounded-lg border border-neutral-800 shrink-0">
+                          <span className={`font-black text-sm sm:text-xl ${minuto > 0 && jogo.golsCasaLive > 0 ? 'text-yellow-400' : 'text-white'}`}>{jogo.golsCasaLive}</span>
+                          <span className="text-neutral-700 font-black text-[10px] sm:text-xs">X</span>
+                          <span className={`font-black text-sm sm:text-xl ${minuto > 0 && jogo.golsForaLive > 0 ? 'text-yellow-400' : 'text-white'}`}>{jogo.golsForaLive}</span>
+                        </div>
+                        <span className="font-bold text-neutral-400 uppercase tracking-widest flex-1 text-left truncate pl-2 sm:pl-3 text-[10px] sm:text-xs" title={jogo.nomeTimeB}>{jogo.nomeTimeB}</span>
                     </div>
-                    <span className="font-bold text-neutral-400 uppercase tracking-widest flex-1 text-left truncate pl-2 sm:pl-3 text-[10px] sm:text-xs" title={jogo.nomeTimeB}>{jogo.nomeTimeB}</span>
+                    {jogo.temAgregado && (
+                        <div className="text-[8px] text-neutral-500 font-black tracking-widest text-center mt-2 border-t border-neutral-800 pt-1">
+                            AGG: {jogo.golsIdaCasa + jogo.golsCasaLive} - {jogo.golsIdaFora + jogo.golsForaLive}
+                        </div>
+                    )}
                   </div>
                 ))}
               </div>
             </div>
           </>
         ) : (
-          /* MODO ESPECTADOR: Layouts Dinâmicos dependendo da quantidade de jogos */
           <div className="w-full flex flex-col gap-6">
             <h3 className={`font-black tracking-widest uppercase mb-2 border-b border-neutral-800 pb-2 text-center transition-all ${partidasAoVivo.length === 1 ? 'text-yellow-400 text-xl sm:text-3xl animate-pulse drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]' : 'text-yellow-500 text-sm sm:text-base'}`}>
               {partidasAoVivo.length === 1 ? '👑 A GRANDE FINAL 👑' : 'Sofá da Sala - Acompanhe os Jogos'}
             </h3>
-            
             {partidasAoVivo.length === 1 ? (
-              /* 1 JOGO (GRANDE FINAL): Destacada, centralizada, gigante e com brilho dourado */
               <div className="flex justify-center w-full animate-fade-in">
                 <div className="w-full max-w-5xl rounded-xl ring-4 ring-yellow-500/50 shadow-[0_0_80px_rgba(234,179,8,0.2)] relative">
                   <div className="absolute inset-0 bg-linear-to-b from-yellow-500/10 to-transparent pointer-events-none rounded-xl z-0"></div>
@@ -340,19 +426,16 @@ export default function Matches() {
                 </div>
               </div>
             ) : partidasAoVivo.length === 2 ? (
-              /* 2 JOGOS (SEMIFINAIS): Largura total da tela, um abaixo do outro */
               <div className="flex flex-col gap-10 w-full animate-fade-in">
                 {partidasAoVivo.map((jogo, i) => renderJogoCompleto(jogo, i))}
               </div>
             ) : (
-              /* 3 OU MAIS JOGOS: Grid tradicional de 2 colunas */
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 w-full animate-fade-in">
                 {partidasAoVivo.map((jogo, i) => renderJogoCompleto(jogo, i))}
               </div>
             )}
           </div>
         )}
-        
       </div>
     </div>
   );
